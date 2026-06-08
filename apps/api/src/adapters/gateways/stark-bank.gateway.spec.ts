@@ -154,7 +154,7 @@ describe('StarkBankGateway', () => {
     ]);
 
     const gateway = new StarkBankGateway(testConfig);
-    const results = await gateway.createTransfers('batch-abc', [
+    const results = await gateway.createTransfers([
       {
         sourceLineIds: ['1'],
         orderDate: '2024-01-15',
@@ -183,13 +183,54 @@ describe('StarkBankGateway', () => {
     ]);
   });
 
+  it('isolates a failing transfer without affecting valid ones', async () => {
+    mockedTransferCreate
+      .mockRejectedValueOnce({
+        errors: [{ code: 'invalidAccountNumber', message: 'Conta inválida' }],
+      })
+      .mockResolvedValueOnce([{ id: 'transfer-2', status: 'processing', externalId: 'pix-2' }]);
+
+    const gateway = new StarkBankGateway(testConfig);
+    const results = await gateway.createTransfers([
+      {
+        sourceLineIds: ['1'],
+        orderDate: '2024-01-15',
+        beneficiary: 'Conta ruim',
+        taxId: '12345678901',
+        bank: '20018183',
+        branch: '0001',
+        account: '0-0',
+        accountType: 'Corrente',
+        amount: 500,
+        domainErrors: [],
+        isValid: true,
+      },
+      {
+        sourceLineIds: ['2'],
+        orderDate: '2024-01-15',
+        beneficiary: 'Conta boa',
+        taxId: '98765432100',
+        bank: '20018183',
+        branch: '0001',
+        account: '2-2',
+        accountType: 'Corrente',
+        amount: 700,
+        domainErrors: [],
+        isValid: true,
+      },
+    ]);
+
+    expect(results[0]?.paymentStatus).toBe('NÃO PAGO');
+    expect(results[1]?.paymentStatus).toBe('PROCESSANDO');
+  });
+
   it('maps transfer creation errors to NÃO PAGO results', async () => {
     mockedTransferCreate.mockRejectedValue({
       errors: [{ code: 'insufficientBalance', message: 'Saldo insuficiente' }],
     });
 
     const gateway = new StarkBankGateway(testConfig);
-    const results = await gateway.createTransfers('batch-abc', [
+    const results = await gateway.createTransfers([
       {
         sourceLineIds: ['2'],
         orderDate: '2024-01-15',

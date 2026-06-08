@@ -1,5 +1,5 @@
 import type { StarkBankGateway } from '../adapters/gateways/stark-bank.gateway.js';
-import type { TransferCreationResult } from '../adapters/gateways/transfer-creation-result.js';
+import type { TransferCreationResult } from '@quansa/shared-types';
 import type { ConsolidatedPaymentBatch } from '../domain/entities/consolidated-payment-batch.js';
 import type { ConsolidatedPaymentLine } from '../domain/entities/consolidated-payment-line.js';
 
@@ -19,10 +19,7 @@ function isEligibleForTransfer(line: ConsolidatedPaymentLine): boolean {
 export class CreateTransfersUseCase {
   constructor(private readonly gateway: StarkBankGateway) {}
 
-  async execute(
-    batchId: string,
-    batch: ConsolidatedPaymentBatch,
-  ): Promise<TransferCreationResult[]> {
+  async execute(batch: ConsolidatedPaymentBatch): Promise<TransferCreationResult[]> {
     const eligible: { index: number; line: ConsolidatedPaymentLine }[] = [];
 
     batch.lines.forEach((line, index) => {
@@ -33,10 +30,7 @@ export class CreateTransfersUseCase {
 
     const created =
       eligible.length > 0
-        ? await this.gateway.createTransfers(
-            batchId,
-            eligible.map((entry) => entry.line),
-          )
+        ? await this.gateway.createTransfers(eligible.map((entry) => entry.line))
         : [];
 
     const results: TransferCreationResult[] = batch.lines.map((line) => toSkippedResult(line));

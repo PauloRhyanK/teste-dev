@@ -13,7 +13,7 @@ import {
   loadStarkBankConfig,
   type StarkBankConfig,
 } from '../../infra/config/starkbank.config.js';
-import type { TransferCreationResult } from './transfer-creation-result.js';
+import type { TransferCreationResult } from '@quansa/shared-types';
 import { resolveTransferCreationMotivo } from './transfer-creation-error.resolver.js';
 import {
   buildTransferExternalId,
@@ -97,62 +97,49 @@ export class StarkBankGateway {
     return snapshots;
   }
 
-  async createTransfers(
-    batchId: string,
-    lines: ConsolidatedPaymentLine[],
-  ): Promise<TransferCreationResult[]> {
-    if (lines.length === 0) {
-      return [];
-    }
+  async createTransfers(lines: ConsolidatedPaymentLine[]): Promise<TransferCreationResult[]> {
+    const results: TransferCreationResult[] = [];
 
-    const transferInputs = lines.map((line) => {
-      const externalId = buildTransferExternalId(batchId, line);
+    // Cria uma transferência por vez para isolar falhas: uma linha rejeitada
+    // pelo Stark Bank não pode derrubar as demais linhas válidas do lote.
+    for (const line of lines) {
+      const externalId = buildTransferExternalId(line);
       const params = toStarkBankTransferParams(line, externalId);
-      return {
-        line,
-        externalId,
-        transfer: new starkbank.Transfer(params),
-      };
-    });
 
-    try {
-      const created = await starkbank.transfer.create(
-        transferInputs.map((input) => input.transfer),
-      );
+      try {
+        const [created] = await starkbank.transfer.create([new starkbank.Transfer(params)]);
 
-      return transferInputs.map((input, index) => {
-        const result = created[index];
-
-        if (!result) {
-          return {
-            sourceLineIds: [...input.line.sourceLineIds],
-            externalId: input.externalId,
-            amount: input.line.amount,
-            paymentStatus: 'NÃO PAGO' as const,
+        if (!created) {
+          results.push({
+            sourceLineIds: [...line.sourceLineIds],
+            externalId,
+            amount: line.amount,
+            paymentStatus: 'NÃO PAGO',
             motivo: mapSystemCommunicationError(),
-          };
+          });
+          continue;
         }
 
-        return {
-          sourceLineIds: [...input.line.sourceLineIds],
-          transferId: result.id,
-          transferStatus: result.status,
-          externalId: result.externalId ?? input.externalId,
-          amount: input.line.amount,
-          paymentStatus: 'PROCESSANDO' as const,
-        };
-      });
-    } catch (error) {
-      const motivo = resolveTransferCreationMotivo(error);
-
-      return transferInputs.map((input) => ({
-        sourceLineIds: [...input.line.sourceLineIds],
-        externalId: input.externalId,
-        amount: input.line.amount,
-        paymentStatus: 'NÃO PAGO' as const,
-        motivo,
-      }));
+        results.push({
+          sourceLineIds: [...line.sourceLineIds],
+          transferId: created.id,
+          transferStatus: created.status,
+          externalId: created.externalId ?? externalId,
+          amount: line.amount,
+          paymentStatus: 'PROCESSANDO',
+        });
+      } catch (error) {
+        results.push({
+          sourceLineIds: [...line.sourceLineIds],
+          externalId,
+          amount: line.amount,
+          paymentStatus: 'NÃO PAGO',
+          motivo: resolveTransferCreationMotivo(error),
+        });
+      }
     }
+
+    return results;
   }
 
   async getTransferFailureReason(transferId: string): Promise<string> {

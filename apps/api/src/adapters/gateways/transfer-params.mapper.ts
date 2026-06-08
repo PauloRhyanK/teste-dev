@@ -14,9 +14,12 @@ export function mapAccountType(accountType: string): string {
   return ACCOUNT_TYPE_MAP[normalized] ?? 'checking';
 }
 
-export function buildTransferExternalId(batchId: string, line: ConsolidatedPaymentLine): string {
-  const lineKey = line.sourceLineIds.join('-');
-  return `batch-${batchId}-${lineKey}`.replace(/[^a-zA-Z0-9-_]/g, '-');
+export function buildTransferExternalId(line: ConsolidatedPaymentLine): string {
+  const taxId = line.taxId.replace(/\D/g, '');
+  const orderDate = line.orderDate.trim();
+  const amountCents = Math.round(line.amount * 100);
+
+  return `pix-${taxId}-${orderDate}-${amountCents}`.replace(/[^a-zA-Z0-9-_]/g, '-');
 }
 
 export function toStarkBankTransferParams(

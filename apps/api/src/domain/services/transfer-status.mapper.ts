@@ -1,4 +1,4 @@
-import type { TransferPaymentStatus } from '../../adapters/gateways/transfer-payment-status.js';
+import type { TransferPaymentStatus } from '@quansa/shared-types';
 
 const FINAL_TRANSFER_STATUSES = new Set(['success', 'failed', 'canceled']);
 

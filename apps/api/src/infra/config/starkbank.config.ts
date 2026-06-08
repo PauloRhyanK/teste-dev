@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import { envRootDir } from './load-env';
 
 import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
@@ -20,7 +20,7 @@ function requireEnv(name: string): string {
 }
 
 function resolvePrivateKeyPath(privateKeyPath: string): string {
-  return isAbsolute(privateKeyPath) ? privateKeyPath : resolve(process.cwd(), privateKeyPath);
+  return isAbsolute(privateKeyPath) ? privateKeyPath : resolve(envRootDir, privateKeyPath);
 }
 
 export function loadStarkBankConfig(): StarkBankConfig {

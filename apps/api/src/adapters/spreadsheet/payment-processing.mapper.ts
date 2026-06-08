@@ -1,4 +1,4 @@
-import type { TransferVerificationResult } from '../gateways/transfer-verification-result.js';
+import type { TransferVerificationResult } from '@quansa/shared-types';
 import type { ConsolidatedPaymentLine } from '../../domain/entities/consolidated-payment-line.js';
 import type { PaymentProcessingOutputRow } from './payment-processing-output-row.js';
 

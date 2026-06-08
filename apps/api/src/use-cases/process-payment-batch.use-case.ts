@@ -152,18 +152,15 @@ export class ProcessPaymentBatchUseCase {
     });
 
     emitStep(3);
-    emitLog('INFO', 'Autenticando com Stark Bank...');
 
-    const creationResults = await this.createTransfersUseCase.execute(batchId, withLimits);
-
-    emitLog('SUCCESS', 'Sessão autenticada.');
+    const creationResults = await this.createTransfersUseCase.execute(withLimits);
 
     const eligibleCount = creationResults.filter(
       (result) => result.paymentStatus === 'PROCESSANDO',
     ).length;
 
     if (eligibleCount > 0) {
-      emitLog('INFO', `Enviando ${eligibleCount} transferências...`);
+      emitLog('INFO', `Enviando ${eligibleCount} transferências via Stark Bank...`);
     }
 
     creationResults.forEach((result) => {

@@ -60,9 +60,62 @@ describe('CreateTransfersUseCase', () => {
       },
     ]);
 
-    const results = await useCase.execute('batch-1', batch);
+    const results = await useCase.execute(batch);
 
-    expect(gateway.createTransfers).toHaveBeenCalledWith('batch-1', [batch.lines[1]]);
+    expect(gateway.createTransfers).toHaveBeenCalledWith([batch.lines[1]]);
+    expect(results[0]?.paymentStatus).toBe('NÃO PAGO');
+    expect(results[1]?.paymentStatus).toBe('PROCESSANDO');
+  });
+
+  it('keeps valid payments paid when another line fails at the gateway', async () => {
+    gateway.createTransfers.mockResolvedValue([
+      {
+        sourceLineIds: ['1'],
+        externalId: 'pix-1',
+        amount: 500,
+        paymentStatus: 'NÃO PAGO',
+        motivo: 'Erro StarkBank: Conta de destino inválida',
+      },
+      {
+        sourceLineIds: ['2'],
+        transferId: 'transfer-2',
+        externalId: 'pix-2',
+        amount: 700,
+        paymentStatus: 'PROCESSANDO',
+      },
+    ]);
+
+    const batch = buildBatch([
+      {
+        sourceLineIds: ['1'],
+        orderDate: '2024-01-15',
+        beneficiary: 'Conta ruim',
+        taxId: '12345678901',
+        bank: '20018183',
+        branch: '0001',
+        account: '1-1',
+        accountType: 'Corrente',
+        amount: 500,
+        domainErrors: [],
+        isValid: true,
+      },
+      {
+        sourceLineIds: ['2'],
+        orderDate: '2024-01-15',
+        beneficiary: 'Conta boa',
+        taxId: '98765432100',
+        bank: '20018183',
+        branch: '0001',
+        account: '2-2',
+        accountType: 'Corrente',
+        amount: 700,
+        domainErrors: [],
+        isValid: true,
+      },
+    ]);
+
+    const results = await useCase.execute(batch);
+
     expect(results[0]?.paymentStatus).toBe('NÃO PAGO');
     expect(results[1]?.paymentStatus).toBe('PROCESSANDO');
   });

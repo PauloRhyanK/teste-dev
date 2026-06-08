@@ -1,4 +1,5 @@
-import type { TransferCreationResult } from '../adapters/gateways/transfer-creation-result.js';
+import type { TransferCreationResult } from '@quansa/shared-types';
+
 import type { StarkBankGateway } from '../adapters/gateways/stark-bank.gateway.js';
 import {
   POLL_INTERVAL_MS,

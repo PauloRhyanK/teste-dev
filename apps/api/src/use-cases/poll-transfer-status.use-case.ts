@@ -1,6 +1,6 @@
-import type { TransferCreationResult } from '../adapters/gateways/transfer-creation-result.js';
+import type { TransferCreationResult, TransferVerificationResult } from '@quansa/shared-types';
+
 import type { StarkBankGateway } from '../adapters/gateways/stark-bank.gateway.js';
-import type { TransferVerificationResult } from '../adapters/gateways/transfer-verification-result.js';
 import {
   POLL_INTERVAL_MS,
   POLL_TIMEOUT_MOTIVO,

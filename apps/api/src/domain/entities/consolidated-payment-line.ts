@@ -1,3 +1,5 @@
+import type { TransferPaymentStatus } from '@quansa/shared-types';
+
 export interface ConsolidatedPaymentLine {
   sourceLineIds: string[];
   orderDate: string;
@@ -10,6 +12,6 @@ export interface ConsolidatedPaymentLine {
   amount: number;
   domainErrors: string[];
   isValid: boolean;
-  paymentStatus?: 'PAGO' | 'NÃO PAGO';
+  paymentStatus?: TransferPaymentStatus;
   motivo?: string;
 }
