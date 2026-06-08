@@ -4,6 +4,8 @@ Bem-vindo(a)! Este teste é uma conversa prática. Queremos entender **como voc�
 
 **Pode usar IA à vontade** (ChatGPT, Claude, Copilot — o que você já usa). É assim que trabalhamos aqui; só esperamos que você entenda e saiba explicar o que foi produzido.
 
+Vamos **fornecer uma chave de API do Claude Code** para você usar à vontade durante o teste.
+
 ---
 
 ## Como vai funcionar
@@ -18,7 +20,7 @@ O teste tem três momentos, em cerca de 4 horas:
 
 ## O desafio
 
-Você recebeu uma planilha (`planilha_teste_pagamentos.xlsx`) com uma lista de pagamentos a serem processados. Cada linha tem uma **data de pedido**, um **beneficiário** com seus **dados bancários** (CPF/CNPJ, banco, agência, conta) e um **valor**.
+Você recebeu uma planilha ([`planilha_teste_pagamentos.xlsx`](https://docs.google.com/spreadsheets/d/169dGl3zxkHdk3PyYYEF9KA2zPQreUuQO/edit?usp=sharing&ouid=101254844168636049749&rtpof=true&sd=true)) com uma lista de pagamentos a serem processados. Cada linha tem uma **data de pedido**, um **beneficiário** com seus **dados bancários** (CPF/CNPJ, banco, agência, conta) e um **valor**.
 
 Seu objetivo é construir uma solução que leia essa planilha, **aplique as regras de negócio abaixo** e execute os pagamentos válidos no **Stark Bank Sandbox**. A linguagem e as bibliotecas são sua escolha.
 
@@ -26,7 +28,7 @@ Os pagamentos são feitos **via Pix, usando os dados bancários** de cada benefi
 
 ### Setup
 
-- Você foi convidado(a) para o workspace de Sandbox da Quansa no Stark Bank (o convite chegou no seu e-mail). Aceite e acesse: **https://quansa.sandbox.starkbank.com/**
+- Você foi convidado(a) para o workspace de Sandbox da Quansa no Stark Bank — o convite chegou no seu **e-mail pessoal**. Aceite e acesse: **https://quansa.sandbox.starkbank.com/**
 - Dentro do workspace da Quansa, crie o seu próprio **Projeto** para gerar as credenciais de API (ID do projeto e chave privada).
 - Configure seu ambiente com essas credenciais para realizar os pagamentos por esse projeto.
 - Use a documentação oficial do Stark Bank como referência — explorar a doc faz parte do desafio.
