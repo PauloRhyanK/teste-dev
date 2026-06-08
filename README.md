@@ -96,6 +96,31 @@ npm install
 cp .env.example .env
 ```
 
+### Stark Bank Sandbox (autenticação ECDSA)
+
+A API do Stark Bank usa assinatura **ECDSA** — não há senha de API. Cada requisição é assinada com a chave privada do projeto.
+
+1. Acesse o [painel Sandbox](https://web.sandbox.starkbank.com/) e crie um **Projeto**.
+2. Gere o par de chaves conforme a [documentação oficial](https://starkbank.com/docs/api#authentication):
+   - no painel, use a opção de criar chaves do projeto; ou
+   - via SDK: `starkbank.Project.create({ name: 'Meu Projeto' })` — a resposta traz `privateKey` (guarde imediatamente; não é recuperável depois).
+3. Salve a chave privada em `keys/privateKey.pem` (a pasta `keys/` está no `.gitignore`).
+4. Preencha o `.env` (nunca commite este arquivo):
+
+```env
+STARKBANK_ENVIRONMENT=sandbox
+STARKBANK_PROJECT_ID=seu_project_id
+STARKBANK_PRIVATE_KEY_PATH=keys/privateKey.pem
+```
+
+5. Valide a conexão:
+
+```bash
+npm run starkbank:check
+```
+
+Se a autenticação estiver correta, o comando exibe o saldo da conta Sandbox. O gateway usa `checkBalance()` internamente — o mesmo método disponível em `StarkBankGateway` para outros fluxos.
+
 ### Comandos
 
 | Comando | Descrição |
@@ -107,6 +132,7 @@ cp .env.example .env
 | `npm run lint:fix` | Corrige problemas de lint automaticamente |
 | `npm run format` | Formata o código com Prettier |
 | `npm test` | Executa testes unitários (Jest) |
+| `npm run starkbank:check` | Testa autenticação ECDSA e exibe saldo Sandbox |
 
 ### Estrutura do projeto
 

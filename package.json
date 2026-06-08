@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "test": "jest"
+    "test": "jest",
+    "starkbank:check": "tsx scripts/check-starkbank-balance.ts"
   },
   "keywords": [],
   "author": "",
