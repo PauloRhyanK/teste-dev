@@ -5,6 +5,10 @@ import {
   TRANSFER_REJECTION_FALLBACK_MOTIVO,
 } from '../../domain/constants/polling.config.js';
 import {
+  mapStarkBankLogErrors,
+  mapSystemCommunicationError,
+} from '../../domain/services/payment-error.mapper.js';
+import {
   loadStarkBankConfig,
   type StarkBankConfig,
 } from '../../infra/config/starkbank.config.js';
@@ -86,20 +90,24 @@ export class StarkBankGateway {
     return snapshots;
   }
 
-  async getTransferFailureReason(transferId: string): Promise<string | null> {
-    const logs = await starkbank.transfer.log.query({
-      transferIds: [transferId],
-      types: ['failed'],
-    });
+  async getTransferFailureReason(transferId: string): Promise<string> {
+    try {
+      const logs = await starkbank.transfer.log.query({
+        transferIds: [transferId],
+        types: ['failed'],
+      });
 
-    const latestFailedLog = logs
-      .filter((log) => log.errors.length > 0)
-      .sort((left, right) => right.created.localeCompare(left.created))[0];
+      const latestFailedLog = logs
+        .filter((log) => log.errors.length > 0)
+        .sort((left, right) => right.created.localeCompare(left.created))[0];
 
-    if (!latestFailedLog) {
-      return TRANSFER_REJECTION_FALLBACK_MOTIVO;
+      if (!latestFailedLog) {
+        return mapStarkBankLogErrors([TRANSFER_REJECTION_FALLBACK_MOTIVO]);
+      }
+
+      return mapStarkBankLogErrors(latestFailedLog.errors);
+    } catch {
+      return mapSystemCommunicationError();
     }
-
-    return latestFailedLog.errors.join('; ');
   }
 }

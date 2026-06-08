@@ -5,8 +5,8 @@ import {
   POLL_INTERVAL_MS,
   POLL_TIMEOUT_MOTIVO,
   POLL_TIMEOUT_MS,
-  TRANSFER_REJECTION_FALLBACK_MOTIVO,
 } from '../domain/constants/polling.config.js';
+import { mapSystemCommunicationError } from '../domain/services/payment-error.mapper.js';
 import {
   isFinalTransferStatus,
   mapTransferStatusToPaymentStatus,
@@ -87,7 +87,22 @@ export class PollTransferStatusUseCase {
         .map(([, state]) => state.transfer.transferId)
         .filter((transferId): transferId is string => Boolean(transferId));
 
-      const snapshots = await this.gateway.getTransfersByIds(pendingIds);
+      let snapshots;
+
+      try {
+        snapshots = await this.gateway.getTransfersByIds(pendingIds);
+      } catch {
+        for (const [index, state] of pendingEntries) {
+          pending.delete(index);
+          results.set(index, toVerificationResult(state.transfer, {
+            paymentStatus: 'PENDENTE - VERIFICAÇÃO MANUAL',
+            motivo: mapSystemCommunicationError(),
+          }));
+        }
+
+        continue;
+      }
+
       const snapshotById = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
 
       for (const [index, state] of pendingEntries) {
@@ -129,7 +144,7 @@ export class PollTransferStatusUseCase {
           results.set(index, toVerificationResult(state.transfer, {
             paymentStatus: 'NÃO PAGO',
             starkStatus: snapshot.status,
-            motivo: motivo ?? TRANSFER_REJECTION_FALLBACK_MOTIVO,
+            motivo,
           }));
           continue;
         }

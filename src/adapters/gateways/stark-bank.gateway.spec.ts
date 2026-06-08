@@ -133,6 +133,29 @@ describe('StarkBankGateway', () => {
       transferIds: ['transfer-1'],
       types: ['failed'],
     });
-    expect(reason).toBe('Conta inválida');
+    expect(reason).toBe('Erro StarkBank: Conta de destino inválida');
+  });
+
+  it('returns mapped system error when transfer log query fails', async () => {
+    mockedTransferLogQuery.mockRejectedValue(new Error('Network failure'));
+
+    const gateway = new StarkBankGateway(testConfig);
+    const reason = await gateway.getTransferFailureReason('transfer-1');
+
+    expect(reason).toBe('Erro de Sistema: Falha de comunicação. Verificar manualmente.');
+  });
+
+  it('returns mapped fallback when transfer logs have no errors', async () => {
+    mockedTransferLogQuery.mockResolvedValue([
+      {
+        errors: [],
+        created: '2024-01-15 10:00:00.000',
+      },
+    ]);
+
+    const gateway = new StarkBankGateway(testConfig);
+    const reason = await gateway.getTransferFailureReason('transfer-1');
+
+    expect(reason).toBe('Erro StarkBank: Transferência rejeitada pelo banco destino');
   });
 });

@@ -1,5 +1,6 @@
 import type { ConsolidatedPaymentBatch } from '../domain/entities/consolidated-payment-batch.js';
 import type { ConsolidatedPaymentLine } from '../domain/entities/consolidated-payment-line.js';
+import { mapDomainError } from '../domain/services/payment-error.mapper.js';
 import { PaymentLimitValidator } from '../domain/validators/payment-limit.validator.js';
 
 function mergeDomainErrors(existing: string[], incoming: string): string[] {
@@ -17,7 +18,7 @@ function applyLimitValidation(line: ConsolidatedPaymentLine): ConsolidatedPaymen
     ...line,
     isValid: false,
     paymentStatus: 'NÃO PAGO',
-    motivo: violationReason,
+    motivo: mapDomainError(violationReason),
     domainErrors: mergeDomainErrors(line.domainErrors, violationReason),
   };
 }

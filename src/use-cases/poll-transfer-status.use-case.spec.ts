@@ -5,6 +5,7 @@ import {
   POLL_TIMEOUT_MOTIVO,
   POLL_TIMEOUT_MS,
 } from '../domain/constants/polling.config.js';
+import { mapSystemCommunicationError } from '../domain/services/payment-error.mapper.js';
 import { PollTransferStatusUseCase } from './poll-transfer-status.use-case.js';
 
 function createTransfer(
@@ -70,12 +71,14 @@ describe('PollTransferStatusUseCase', () => {
     gateway.getTransfersByIds.mockResolvedValue([
       { id: 'transfer-1', status: 'failed', externalId: 'external-1' },
     ]);
-    gateway.getTransferFailureReason.mockResolvedValue('Conta inválida');
+    gateway.getTransferFailureReason.mockResolvedValue(
+      'Erro StarkBank: Conta de destino inválida',
+    );
 
     const result = await useCase.execute([createTransfer()]);
 
     expect(result[0]?.paymentStatus).toBe('NÃO PAGO');
-    expect(result[0]?.motivo).toBe('Conta inválida');
+    expect(result[0]?.motivo).toBe('Erro StarkBank: Conta de destino inválida');
     expect(gateway.getTransferFailureReason).toHaveBeenCalledWith('transfer-1');
   });
 
@@ -83,12 +86,14 @@ describe('PollTransferStatusUseCase', () => {
     gateway.getTransfersByIds.mockResolvedValue([
       { id: 'transfer-1', status: 'canceled', externalId: 'external-1' },
     ]);
-    gateway.getTransferFailureReason.mockResolvedValue('Operação cancelada');
+    gateway.getTransferFailureReason.mockResolvedValue(
+      'Erro StarkBank: Operação cancelada',
+    );
 
     const result = await useCase.execute([createTransfer()]);
 
     expect(result[0]?.paymentStatus).toBe('NÃO PAGO');
-    expect(result[0]?.motivo).toBe('Operação cancelada');
+    expect(result[0]?.motivo).toBe('Erro StarkBank: Operação cancelada');
   });
 
   it('marks processing transfers as PENDENTE after timeout', async () => {
@@ -135,6 +140,15 @@ describe('PollTransferStatusUseCase', () => {
     expect(gateway.getTransfersByIds).toHaveBeenCalledWith(['transfer-1', 'transfer-2']);
     expect(result[0]?.paymentStatus).toBe('PAGO');
     expect(result[1]?.paymentStatus).toBe('PAGO');
+  });
+
+  it('marks pending transfers as PENDENTE when polling communication fails', async () => {
+    gateway.getTransfersByIds.mockRejectedValue(new Error('Network failure'));
+
+    const result = await useCase.execute([createTransfer()]);
+
+    expect(result[0]?.paymentStatus).toBe('PENDENTE - VERIFICAÇÃO MANUAL');
+    expect(result[0]?.motivo).toBe(mapSystemCommunicationError());
   });
 
   it('does not mutate the original transfer array or objects', async () => {

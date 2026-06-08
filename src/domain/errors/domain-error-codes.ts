@@ -1,5 +1,7 @@
 export const DomainErrorCode = {
-  INVALID_TAX_ID: 'CPF/CNPJ inválido',
-  BELOW_MINIMUM: 'Limite violado: Valor abaixo do mínimo (R$ 10)',
-  ABOVE_MAXIMUM: 'Limite violado: Valor acima do máximo (R$ 3000)',
+  INVALID_TAX_ID: 'INVALID_TAX_ID',
+  BELOW_MINIMUM: 'BELOW_MINIMUM',
+  ABOVE_MAXIMUM: 'ABOVE_MAXIMUM',
 } as const;
+
+export type DomainErrorCodeValue = (typeof DomainErrorCode)[keyof typeof DomainErrorCode];

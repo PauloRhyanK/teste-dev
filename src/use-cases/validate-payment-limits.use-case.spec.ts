@@ -44,7 +44,7 @@ describe('ValidatePaymentLimitsUseCase', () => {
 
     expect(result.lines[0]?.isValid).toBe(false);
     expect(result.lines[0]?.paymentStatus).toBe('NÃO PAGO');
-    expect(result.lines[0]?.motivo).toBe(DomainErrorCode.BELOW_MINIMUM);
+    expect(result.lines[0]?.motivo).toBe('Erro: Valor abaixo do mínimo de R$ 10');
     expect(result.lines[0]?.domainErrors).toContain(DomainErrorCode.BELOW_MINIMUM);
   });
 
@@ -53,7 +53,7 @@ describe('ValidatePaymentLimitsUseCase', () => {
 
     expect(result.lines[0]?.isValid).toBe(false);
     expect(result.lines[0]?.paymentStatus).toBe('NÃO PAGO');
-    expect(result.lines[0]?.motivo).toBe(DomainErrorCode.ABOVE_MAXIMUM);
+    expect(result.lines[0]?.motivo).toBe('Erro: Valor consolidado excede o teto de R$ 3.000');
   });
 
   it('leaves valid lines unchanged', () => {
