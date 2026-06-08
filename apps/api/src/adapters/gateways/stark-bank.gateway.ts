@@ -1,5 +1,6 @@
 import starkbank from 'starkbank';
 
+import type { ConsolidatedPaymentLine } from '../../domain/entities/consolidated-payment-line.js';
 import {
   TRANSFER_QUERY_BATCH_SIZE,
   TRANSFER_REJECTION_FALLBACK_MOTIVO,
@@ -12,6 +13,12 @@ import {
   loadStarkBankConfig,
   type StarkBankConfig,
 } from '../../infra/config/starkbank.config.js';
+import type { TransferCreationResult } from './transfer-creation-result.js';
+import { resolveTransferCreationMotivo } from './transfer-creation-error.resolver.js';
+import {
+  buildTransferExternalId,
+  toStarkBankTransferParams,
+} from './transfer-params.mapper.js';
 
 export interface StarkBankBalance {
   amount: number;
@@ -88,6 +95,64 @@ export class StarkBankGateway {
     }
 
     return snapshots;
+  }
+
+  async createTransfers(
+    batchId: string,
+    lines: ConsolidatedPaymentLine[],
+  ): Promise<TransferCreationResult[]> {
+    if (lines.length === 0) {
+      return [];
+    }
+
+    const transferInputs = lines.map((line) => {
+      const externalId = buildTransferExternalId(batchId, line);
+      const params = toStarkBankTransferParams(line, externalId);
+      return {
+        line,
+        externalId,
+        transfer: new starkbank.Transfer(params),
+      };
+    });
+
+    try {
+      const created = await starkbank.transfer.create(
+        transferInputs.map((input) => input.transfer),
+      );
+
+      return transferInputs.map((input, index) => {
+        const result = created[index];
+
+        if (!result) {
+          return {
+            sourceLineIds: [...input.line.sourceLineIds],
+            externalId: input.externalId,
+            amount: input.line.amount,
+            paymentStatus: 'NÃO PAGO' as const,
+            motivo: mapSystemCommunicationError(),
+          };
+        }
+
+        return {
+          sourceLineIds: [...input.line.sourceLineIds],
+          transferId: result.id,
+          transferStatus: result.status,
+          externalId: result.externalId ?? input.externalId,
+          amount: input.line.amount,
+          paymentStatus: 'PROCESSANDO' as const,
+        };
+      });
+    } catch (error) {
+      const motivo = resolveTransferCreationMotivo(error);
+
+      return transferInputs.map((input) => ({
+        sourceLineIds: [...input.line.sourceLineIds],
+        externalId: input.externalId,
+        amount: input.line.amount,
+        paymentStatus: 'NÃO PAGO' as const,
+        motivo,
+      }));
+    }
   }
 
   async getTransferFailureReason(transferId: string): Promise<string> {

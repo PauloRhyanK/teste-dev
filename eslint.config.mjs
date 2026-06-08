@@ -10,6 +10,7 @@ export default tseslint.config(
     ignores: [
       'dist/**',
       'apps/*/dist/**',
+      'apps/web/**',
       'packages/*/dist/**',
       'node_modules/**',
       'coverage/**',
@@ -37,21 +38,6 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         project: './apps/api/tsconfig.eslint.json',
-        tsconfigRootDir: import.meta.dirname,
-      },
-    },
-    rules: {
-      '@typescript-eslint/no-unused-vars': [
-        'error',
-        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
-      ],
-    },
-  },
-  {
-    files: ['apps/web/**/*.{ts,tsx}'],
-    languageOptions: {
-      parserOptions: {
-        project: './apps/web/tsconfig.eslint.json',
         tsconfigRootDir: import.meta.dirname,
       },
     },

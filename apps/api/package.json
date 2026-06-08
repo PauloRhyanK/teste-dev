@@ -12,6 +12,8 @@
     "starkbank:check": "tsx scripts/check-starkbank-balance.ts"
   },
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/multipart": "^9.4.0",
     "@quansa/shared-types": "*",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",

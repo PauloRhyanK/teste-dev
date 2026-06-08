@@ -5,4 +5,9 @@ coverage/
 
 apps/api/dist/
 apps/web/dist/
+apps/web/.output/
+apps/web/.vinxi/
+apps/web/.tanstack/
+apps/web/.nitro/
+apps/web/.wrangler/
 packages/shared-types/dist/

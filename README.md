@@ -126,7 +126,7 @@ Se a autenticação estiver correta, o comando exibe o saldo da conta Sandbox. O
 | Comando | Descrição |
 |---------|-----------|
 | `npm run dev` | Sobe a API Fastify com hot reload (porta padrão: 3000) |
-| `npm run dev:web` | Sobe o frontend React/Vite (porta padrão: 5173) |
+| `npm run dev:web` | Sobe o frontend TanStack Start (porta padrão: 5173) |
 | `npm run build` | Compila `shared-types` → `api` → `web` |
 | `npm start` | Executa a API em produção |
 | `npm run lint` | Verifica padrões de código em todos os workspaces |
@@ -142,7 +142,7 @@ O repositório usa **npm workspaces** para compartilhar tipagem TypeScript entre
 ```
 apps/
   api/                 # Backend Fastify/Node.js (Sprints 1–4)
-  web/                 # Frontend React/Vite (Sprint 5)
+  web/                 # Frontend TanStack Start + shadcn (Sprint 5)
 packages/
   shared-types/        # DTOs compartilhados (contrato API ↔ UI)
 ```
@@ -169,13 +169,29 @@ apps/api/src/
 | `adapters` | Pontos de entrada/saída (rotas HTTP, integrações) |
 | `infra` | Configuração, servidor e wiring |
 
-### Health check
+### Fluxo de processamento (web + API)
 
-Com a API rodando (`npm run dev`), verifique:
+1. Em um terminal: `npm run dev` (API em `:3000`)
+2. Em outro terminal: `npm run dev:web` (frontend em `:5173`)
+3. Acesse `http://localhost:5173`, envie um arquivo `.xlsx` e clique em **Iniciar Processamento**
+4. Acompanhe os logs em tempo real (SSE) e baixe a planilha processada ao final
+
+O frontend chama a API via proxy do Vite (`/batches`, `/health` → `:3000`). Os contratos de eventos e respostas vivem em `packages/shared-types`.
+
+### Health check
 
 ```bash
 curl http://localhost:3000/health
 # {"status":"ok"}
 ```
 
-Com o frontend (`npm run dev:web`), a página inicial consulta `/health` via proxy do Vite e exibe o status tipado com `@quansa/shared-types`.
+### Endpoints de lote
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/batches` | Upload multipart (campo `file`) — inicia processamento assíncrono |
+| `GET` | `/batches/:id/events` | Stream SSE de logs e progresso |
+| `GET` | `/batches/:id` | Snapshot do job |
+| `GET` | `/batches/:id/download` | Download do `.xlsx` com aba **Processamento de Pagamentos** |
+
+Jobs ficam em memória (adequado para o teste técnico; reiniciar a API limpa o estado).

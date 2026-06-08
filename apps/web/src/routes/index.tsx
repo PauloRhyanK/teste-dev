@@ -1,6 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import confetti from "canvas-confetti";
+import type { BatchLogLevel, BatchProcessingEvent } from '@quansa/shared-types';
+import { createFileRoute } from '@tanstack/react-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import confetti from 'canvas-confetti';
+import { downloadBatch, subscribeBatchEvents, uploadBatch } from '@/lib/api/batch-api';
 import {
   UploadCloud,
   FileSpreadsheet,
@@ -12,58 +14,38 @@ import {
   X,
   AlertCircle,
   Sparkles,
-} from "lucide-react";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
+} from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute('/')({
   head: () => ({
     meta: [
-      { title: "Processador de Lotes PIX" },
+      { title: 'Processador de Lotes PIX' },
       {
-        name: "description",
-        content: "Envie sua planilha para validação e liquidação via Stark Bank.",
+        name: 'description',
+        content: 'Envie sua planilha para validação e liquidação via Stark Bank.',
       },
     ],
   }),
   component: Index,
 });
 
-type LogLevel = "INFO" | "SUCCESS" | "WARNING" | "ERROR";
-type LogEntry = { id: number; level: LogLevel; message: string; time: string };
+type LogEntry = { id: number; level: BatchLogLevel; message: string; time: string };
 
 const STEPS = [
-  { id: 1, title: "Lendo e Validando Planilha" },
-  { id: 2, title: "Consolidando Pagamentos" },
-  { id: 3, title: "Enviando PIX via Stark Bank" },
-  { id: 4, title: "Finalizado" },
+  { id: 1, title: 'Lendo e Validando Planilha' },
+  { id: 2, title: 'Consolidando Pagamentos' },
+  { id: 3, title: 'Enviando PIX via Stark Bank' },
+  { id: 4, title: 'Finalizado' },
 ] as const;
 
-const MOCK_SCRIPT: { delay: number; step?: number; log?: Omit<LogEntry, "id" | "time"> }[] = [
-  { delay: 0, step: 1, log: { level: "INFO", message: "Abrindo planilha enviada..." } },
-  { delay: 500, log: { level: "INFO", message: "Lendo linha 1 — cabeçalho detectado." } },
-  { delay: 500, log: { level: "INFO", message: "Lendo linha 2 — Maria Souza • R$ 1.250,00" } },
-  { delay: 500, log: { level: "SUCCESS", message: "Linha 2 validada com sucesso." } },
-  { delay: 500, log: { level: "INFO", message: "Lendo linha 3 — Carlos Lima • R$ 320,00" } },
-  { delay: 500, log: { level: "WARNING", message: "Linha 4: CPF com dígito divergente, ignorando." } },
-  { delay: 500, log: { level: "INFO", message: "Lendo linha 5 — João da Silva • R$ 1.500,00" } },
-  { delay: 800, step: 2, log: { level: "INFO", message: "Consolidando 42 pagamentos por chave PIX..." } },
-  { delay: 600, log: { level: "INFO", message: "Agrupados 3 pagamentos duplicados para Maria Souza." } },
-  { delay: 600, log: { level: "SUCCESS", message: "Lote consolidado: 39 transações prontas." } },
-  { delay: 800, step: 3, log: { level: "INFO", message: "Autenticando com Stark Bank..." } },
-  { delay: 500, log: { level: "SUCCESS", message: "Sessão autenticada." } },
-  { delay: 500, log: { level: "SUCCESS", message: "PIX enviado — João da Silva • R$ 1.500,00" } },
-  { delay: 500, log: { level: "SUCCESS", message: "PIX enviado — Maria Souza • R$ 1.250,00" } },
-  { delay: 500, log: { level: "ERROR", message: "Falha — Pedro Alves: limite diário excedido." } },
-  { delay: 500, log: { level: "SUCCESS", message: "PIX enviado — Carlos Lima • R$ 320,00" } },
-  { delay: 500, log: { level: "SUCCESS", message: "PIX enviado — Ana Paula • R$ 780,00" } },
-  { delay: 500, log: { level: "WARNING", message: "Beatriz Rocha: chave PIX não encontrada, pulando." } },
-  { delay: 500, log: { level: "SUCCESS", message: "37 pagamentos liquidados com sucesso." } },
-  { delay: 600, step: 4, log: { level: "SUCCESS", message: "Processamento concluído. Relatório gerado." } },
-];
+function formatLogTime(timestamp: string): string {
+  return new Date(timestamp).toTimeString().slice(0, 8);
+}
 
 function Index() {
   const [file, setFile] = useState<File | null>(null);
@@ -73,15 +55,18 @@ function Index() {
   const [currentStep, setCurrentStep] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [done, setDone] = useState(false);
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const logIdRef = useRef(0);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const f = files[0];
-    if (!f.name.toLowerCase().endsWith(".xlsx")) {
-      setError("Formato inválido. Envie um arquivo .xlsx");
+    if (!f.name.toLowerCase().endsWith('.xlsx')) {
+      setError('Formato inválido. Envie um arquivo .xlsx');
       setFile(null);
       return;
     }
@@ -89,63 +74,118 @@ function Index() {
     setFile(f);
   };
 
+  const appendLog = useCallback((level: BatchLogLevel, message: string, timestamp: string) => {
+    logIdRef.current += 1;
+    setLogs((prev) => [
+      ...prev,
+      { id: logIdRef.current, level, message, time: formatLogTime(timestamp) },
+    ]);
+  }, []);
+
+  const handleBatchEvent = useCallback(
+    (event: BatchProcessingEvent) => {
+      switch (event.type) {
+        case 'step.changed':
+          setCurrentStep(event.step);
+          break;
+        case 'log':
+          appendLog(event.level, event.message, event.timestamp);
+          break;
+        case 'batch.completed':
+          setCurrentStep(4);
+          setDone(true);
+          setProcessing(false);
+          confetti({
+            particleCount: 140,
+            spread: 80,
+            origin: { y: 0.6 },
+          });
+          break;
+        case 'batch.failed':
+          appendLog('ERROR', event.error, event.timestamp);
+          setProcessing(false);
+          setError(event.error);
+          break;
+      }
+    },
+    [appendLog],
+  );
+
   const reset = () => {
+    unsubscribeRef.current?.();
+    unsubscribeRef.current = null;
     setFile(null);
     setStarted(false);
     setCurrentStep(0);
     setLogs([]);
     setDone(false);
+    setBatchId(null);
+    setProcessing(false);
     setError(null);
   };
 
-  const startProcessing = () => {
+  const startProcessing = async () => {
+    if (!file || processing) return;
+
     setStarted(true);
     setCurrentStep(1);
+    setProcessing(true);
+    setError(null);
+    setLogs([]);
+    setDone(false);
+    logIdRef.current = 0;
+
+    try {
+      const upload = await uploadBatch(file);
+      setBatchId(upload.batchId);
+      unsubscribeRef.current?.();
+      unsubscribeRef.current = subscribeBatchEvents(
+        upload.batchId,
+        handleBatchEvent,
+        (sseError) => {
+          setError(sseError.message);
+          setProcessing(false);
+        },
+      );
+    } catch (uploadError) {
+      const message =
+        uploadError instanceof Error ? uploadError.message : 'Falha ao iniciar processamento.';
+      setError(message);
+      setProcessing(false);
+      setStarted(false);
+      setCurrentStep(0);
+    }
   };
 
-  // Mock SSE
+  const handleDownload = async () => {
+    if (!batchId) return;
+
+    try {
+      const blob = await downloadBatch(batchId);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'planilha_processada.xlsx';
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      const message =
+        downloadError instanceof Error ? downloadError.message : 'Falha ao baixar planilha.';
+      setError(message);
+    }
+  };
+
   useEffect(() => {
-    if (!started) return;
-    let cancelled = false;
-    const timeouts: ReturnType<typeof setTimeout>[] = [];
-    let acc = 0;
-    MOCK_SCRIPT.forEach((event) => {
-      acc += event.delay;
-      timeouts.push(
-        setTimeout(() => {
-          if (cancelled) return;
-          if (event.step) setCurrentStep(event.step);
-          if (event.log) {
-            logIdRef.current += 1;
-            const now = new Date();
-            const time = now.toTimeString().slice(0, 8);
-            setLogs((prev) => [...prev, { id: logIdRef.current, time, ...event.log! }]);
-          }
-        }, acc),
-      );
-    });
-    timeouts.push(
-      setTimeout(() => {
-        if (cancelled) return;
-        setDone(true);
-        confetti({
-          particleCount: 140,
-          spread: 80,
-          origin: { y: 0.6 },
-        });
-      }, acc + 400),
-    );
     return () => {
-      cancelled = true;
-      timeouts.forEach(clearTimeout);
+      unsubscribeRef.current?.();
     };
-  }, [started]);
+  }, []);
 
   // Auto scroll terminal
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const viewport = el.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
+    const viewport = el.querySelector<HTMLElement>('[data-radix-scroll-area-viewport]');
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
   }, [logs]);
 
@@ -193,19 +233,17 @@ function Index() {
                 onDrop={onDrop}
                 onClick={() => inputRef.current?.click()}
                 className={cn(
-                  "flex cursor-pointer flex-col items-center justify-center gap-4 border-2 border-dashed bg-white py-20 transition",
+                  'flex cursor-pointer flex-col items-center justify-center gap-4 border-2 border-dashed bg-white py-20 transition',
                   dragOver
-                    ? "border-slate-900 bg-slate-50"
-                    : "border-slate-300 hover:border-slate-400",
+                    ? 'border-slate-900 bg-slate-50'
+                    : 'border-slate-300 hover:border-slate-400',
                 )}
               >
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
                   <UploadCloud className="h-8 w-8 text-slate-600" />
                 </div>
                 <div className="text-center">
-                  <p className="text-base font-medium text-slate-900">
-                    Arraste sua planilha aqui
-                  </p>
+                  <p className="text-base font-medium text-slate-900">Arraste sua planilha aqui</p>
                   <p className="mt-1 text-sm text-slate-500">
                     ou clique para selecionar — apenas arquivos .xlsx
                   </p>
@@ -242,11 +280,12 @@ function Index() {
                     <X className="h-4 w-4" />
                   </Button>
                   <Button
-                    onClick={startProcessing}
+                    onClick={() => void startProcessing()}
+                    disabled={processing}
                     className="bg-emerald-600 text-white hover:bg-emerald-700"
                   >
                     <Play className="mr-2 h-4 w-4" />
-                    Iniciar Processamento
+                    {processing ? 'Enviando...' : 'Iniciar Processamento'}
                   </Button>
                 </div>
               </Card>
@@ -266,28 +305,25 @@ function Index() {
                 {STEPS.map((s) => {
                   const state =
                     done && s.id === 4
-                      ? "done"
+                      ? 'done'
                       : currentStep > s.id
-                        ? "done"
+                        ? 'done'
                         : currentStep === s.id
-                          ? "running"
-                          : "pending";
+                          ? 'running'
+                          : 'pending';
                   return (
                     <li key={s.id} className="flex items-start gap-3">
                       <div
                         className={cn(
-                          "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border",
-                          state === "done" &&
-                            "border-emerald-600 bg-emerald-600 text-white",
-                          state === "running" &&
-                            "border-slate-900 bg-slate-900 text-white",
-                          state === "pending" &&
-                            "border-slate-300 bg-white text-slate-400",
+                          'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border',
+                          state === 'done' && 'border-emerald-600 bg-emerald-600 text-white',
+                          state === 'running' && 'border-slate-900 bg-slate-900 text-white',
+                          state === 'pending' && 'border-slate-300 bg-white text-slate-400',
                         )}
                       >
-                        {state === "done" ? (
+                        {state === 'done' ? (
                           <CheckCircle2 className="h-4 w-4" />
-                        ) : state === "running" ? (
+                        ) : state === 'running' ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <Circle className="h-3 w-3" />
@@ -296,18 +332,18 @@ function Index() {
                       <div className="pt-0.5">
                         <p
                           className={cn(
-                            "text-sm font-medium",
-                            state === "pending" ? "text-slate-400" : "text-slate-900",
+                            'text-sm font-medium',
+                            state === 'pending' ? 'text-slate-400' : 'text-slate-900',
                           )}
                         >
                           {s.title}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {state === "done"
-                            ? "Concluído"
-                            : state === "running"
-                              ? "Em andamento..."
-                              : "Aguardando"}
+                          {state === 'done'
+                            ? 'Concluído'
+                            : state === 'running'
+                              ? 'Em andamento...'
+                              : 'Aguardando'}
                         </p>
                       </div>
                     </li>
@@ -324,7 +360,10 @@ function Index() {
                   <p className="mb-3 text-sm text-emerald-700">
                     Sua planilha foi processada com sucesso.
                   </p>
-                  <Button className="w-full bg-emerald-600 text-white hover:bg-emerald-700">
+                  <Button
+                    onClick={() => void handleDownload()}
+                    className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                  >
                     <Download className="mr-2 h-4 w-4" />
                     Baixar Planilha Processada
                   </Button>
@@ -354,9 +393,7 @@ function Index() {
                       <span className="text-slate-200">{log.message}</span>
                     </div>
                   ))}
-                  {logs.length === 0 && (
-                    <div className="text-slate-500">Aguardando eventos...</div>
-                  )}
+                  {logs.length === 0 && <div className="text-slate-500">Aguardando eventos...</div>}
                 </div>
               </ScrollArea>
             </Card>
@@ -367,17 +404,17 @@ function Index() {
   );
 }
 
-function LogBadge({ level }: { level: LogLevel }) {
-  const map: Record<LogLevel, string> = {
-    INFO: "border-sky-500/30 bg-sky-500/10 text-sky-300",
-    SUCCESS: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-    WARNING: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-    ERROR: "border-red-500/30 bg-red-500/10 text-red-300",
+function LogBadge({ level }: { level: BatchLogLevel }) {
+  const map: Record<BatchLogLevel, string> = {
+    INFO: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+    SUCCESS: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+    WARNING: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+    ERROR: 'border-red-500/30 bg-red-500/10 text-red-300',
   };
   return (
     <Badge
       variant="outline"
-      className={cn("shrink-0 rounded px-1.5 py-0 text-[10px] font-semibold", map[level])}
+      className={cn('shrink-0 rounded px-1.5 py-0 text-[10px] font-semibold', map[level])}
     >
       {level}
     </Badge>

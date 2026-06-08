@@ -17,10 +17,12 @@ jest.mock('starkbank', () => {
       transfer: {
         get: jest.fn(),
         query: jest.fn(),
+        create: jest.fn(),
         log: {
           query: jest.fn(),
         },
       },
+      Transfer: jest.fn().mockImplementation((params: unknown) => params),
     },
   };
 });
@@ -30,6 +32,7 @@ const mockedProject = starkbank.Project as jest.MockedClass<typeof starkbank.Pro
 const mockedBalanceGet = starkbank.balance.get as jest.Mock;
 const mockedTransferGet = starkbank.transfer.get as jest.Mock;
 const mockedTransferQuery = starkbank.transfer.query as jest.Mock;
+const mockedTransferCreate = starkbank.transfer.create as jest.Mock;
 const mockedTransferLogQuery = starkbank.transfer.log.query as jest.Mock;
 
 const testConfig: StarkBankConfig = {
@@ -143,6 +146,67 @@ describe('StarkBankGateway', () => {
     const reason = await gateway.getTransferFailureReason('transfer-1');
 
     expect(reason).toBe('Erro de Sistema: Falha de comunicação. Verificar manualmente.');
+  });
+
+  it('creates transfers and returns processing results', async () => {
+    mockedTransferCreate.mockResolvedValue([
+      { id: 'transfer-1', status: 'processing', externalId: 'batch-abc-1' },
+    ]);
+
+    const gateway = new StarkBankGateway(testConfig);
+    const results = await gateway.createTransfers('batch-abc', [
+      {
+        sourceLineIds: ['1'],
+        orderDate: '2024-01-15',
+        beneficiary: 'Maria Souza',
+        taxId: '12345678901',
+        bank: '20018183',
+        branch: '0001',
+        account: '12345-6',
+        accountType: 'Corrente',
+        amount: 1250,
+        domainErrors: [],
+        isValid: true,
+      },
+    ]);
+
+    expect(mockedTransferCreate).toHaveBeenCalled();
+    expect(results).toEqual([
+      {
+        sourceLineIds: ['1'],
+        transferId: 'transfer-1',
+        transferStatus: 'processing',
+        externalId: 'batch-abc-1',
+        amount: 1250,
+        paymentStatus: 'PROCESSANDO',
+      },
+    ]);
+  });
+
+  it('maps transfer creation errors to NÃO PAGO results', async () => {
+    mockedTransferCreate.mockRejectedValue({
+      errors: [{ code: 'insufficientBalance', message: 'Saldo insuficiente' }],
+    });
+
+    const gateway = new StarkBankGateway(testConfig);
+    const results = await gateway.createTransfers('batch-abc', [
+      {
+        sourceLineIds: ['2'],
+        orderDate: '2024-01-15',
+        beneficiary: 'João Silva',
+        taxId: '98765432100',
+        bank: '20018183',
+        branch: '0001',
+        account: '98765-4',
+        accountType: 'Corrente',
+        amount: 500,
+        domainErrors: [],
+        isValid: true,
+      },
+    ]);
+
+    expect(results[0]?.paymentStatus).toBe('NÃO PAGO');
+    expect(results[0]?.motivo).toContain('Saldo insuficiente');
   });
 
   it('returns mapped fallback when transfer logs have no errors', async () => {
