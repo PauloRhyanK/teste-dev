@@ -79,3 +79,60 @@ O trabalho fica em um **repositório Git**. Pedimos que:
 - **Pergunte.** Esclarecer o problema antes de codar é um ótimo sinal, não o contrário.
 - **Não precisa terminar tudo.** Preferimos decisões bem pensadas a um código corrido que você não consegue explicar.
 - **Pense em quem está do outro lado:** cada pagamento é o adiantamento de salário de um trabalhador de verdade.
+
+---
+
+## Como funciona
+
+### Pré-requisitos
+
+- Node.js 20+
+- npm
+
+### Instalação
+
+```bash
+npm install
+cp .env.example .env
+```
+
+### Comandos
+
+| Comando | Descrição |
+|---------|-----------|
+| `npm run dev` | Sobe o servidor Fastify com hot reload (porta padrão: 3000) |
+| `npm run build` | Compila TypeScript para `dist/` |
+| `npm start` | Executa o build de produção |
+| `npm run lint` | Verifica padrões de código (ESLint) |
+| `npm run lint:fix` | Corrige problemas de lint automaticamente |
+| `npm run format` | Formata o código com Prettier |
+| `npm test` | Executa testes unitários (Jest) |
+
+### Estrutura do projeto
+
+O projeto segue uma **Arquitetura Limpa Simplificada** para permitir trabalho paralelo sem conflitos estruturais:
+
+```
+src/
+  domain/        # Entidades e regras de negócio puras (sem dependências externas)
+  use-cases/     # Orquestração das regras de negócio
+  adapters/      # Controllers HTTP (Fastify), gateways externos (Stark Bank, Excel)
+  infra/         # Servidor, configuração e bootstrap da aplicação
+  main.ts        # Ponto de entrada da aplicação
+```
+
+| Camada | Responsabilidade |
+|--------|------------------|
+| `domain` | Tipos, entidades e validações puras |
+| `use-cases` | Casos de uso que orquestram o fluxo de negócio |
+| `adapters` | Pontos de entrada/saída (rotas HTTP, integrações) |
+| `infra` | Configuração, servidor e wiring |
+
+### Health check
+
+Com o servidor rodando (`npm run dev`), verifique:
+
+```bash
+curl http://localhost:3000/health
+# {"status":"ok"}
+```

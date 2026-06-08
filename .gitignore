@@ -1,1 +1,5 @@
 keys/
+node_modules/
+dist/
+.env
+coverage/
