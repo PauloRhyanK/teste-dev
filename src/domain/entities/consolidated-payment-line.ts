@@ -10,4 +10,6 @@ export interface ConsolidatedPaymentLine {
   amount: number;
   domainErrors: string[];
   isValid: boolean;
+  paymentStatus?: 'PAGO' | 'NÃO PAGO';
+  motivo?: string;
 }
