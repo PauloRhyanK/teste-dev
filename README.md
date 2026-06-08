@@ -1,4 +1,4 @@
-# Teste Técnico — Desenvolvedor(a) Full-Stack Júnior · Quansa
+# Teste Técnico — Desenvolvedor(a) Full-Stack · Quansa
 
 Bem-vindo(a)! Este teste é uma conversa prática. Queremos entender **como você pensa e resolve problemas**, mais do que avaliar conhecimento técnico decorado. Fique à vontade para perguntar o que quiser ao longo do dia.
 
