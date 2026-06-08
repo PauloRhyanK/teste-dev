@@ -14,6 +14,13 @@ jest.mock('starkbank', () => {
       balance: {
         get: jest.fn(),
       },
+      transfer: {
+        get: jest.fn(),
+        query: jest.fn(),
+        log: {
+          query: jest.fn(),
+        },
+      },
     },
   };
 });
@@ -21,6 +28,9 @@ jest.mock('starkbank', () => {
 const mockedStarkbank = starkbank as jest.Mocked<typeof starkbank>;
 const mockedProject = starkbank.Project as jest.MockedClass<typeof starkbank.Project>;
 const mockedBalanceGet = starkbank.balance.get as jest.Mock;
+const mockedTransferGet = starkbank.transfer.get as jest.Mock;
+const mockedTransferQuery = starkbank.transfer.query as jest.Mock;
+const mockedTransferLogQuery = starkbank.transfer.log.query as jest.Mock;
 
 const testConfig: StarkBankConfig = {
   environment: 'sandbox',
@@ -71,5 +81,58 @@ describe('StarkBankGateway', () => {
     const gateway = new StarkBankGateway(testConfig);
 
     await expect(gateway.checkBalance()).rejects.toThrow('Authentication failed');
+  });
+
+  it('gets a single transfer by id', async () => {
+    mockedTransferGet.mockResolvedValue({
+      id: 'transfer-1',
+      status: 'processing',
+      externalId: 'external-1',
+    });
+
+    const gateway = new StarkBankGateway(testConfig);
+    const transfer = await gateway.getTransfer('transfer-1');
+
+    expect(mockedTransferGet).toHaveBeenCalledWith('transfer-1');
+    expect(transfer).toEqual({
+      id: 'transfer-1',
+      status: 'processing',
+      externalId: 'external-1',
+    });
+  });
+
+  it('gets transfers in batch by ids', async () => {
+    mockedTransferQuery.mockResolvedValue([
+      { id: 'transfer-1', status: 'success', externalId: 'external-1' },
+      { id: 'transfer-2', status: 'processing', externalId: 'external-2' },
+    ]);
+
+    const gateway = new StarkBankGateway(testConfig);
+    const transfers = await gateway.getTransfersByIds(['transfer-1', 'transfer-2']);
+
+    expect(mockedTransferQuery).toHaveBeenCalledWith({ ids: ['transfer-1', 'transfer-2'] });
+    expect(transfers).toHaveLength(2);
+  });
+
+  it('returns failure reason from transfer logs', async () => {
+    mockedTransferLogQuery.mockResolvedValue([
+      {
+        errors: ['Conta inválida'],
+        created: '2024-01-15 10:00:00.000',
+      },
+      {
+        errors: ['Saldo insuficiente'],
+        created: '2024-01-15 09:00:00.000',
+      },
+    ]);
+
+    const gateway = new StarkBankGateway(testConfig);
+    const reason = await gateway.getTransferFailureReason('transfer-1');
+
+    expect(mockedTransferLogQuery).toHaveBeenCalledWith({
+      transferIds: ['transfer-1'],
+      types: ['failed'],
+    });
+    expect(reason).toBe('Conta inválida');
   });
 });
