@@ -1,0 +1,29 @@
+{
+  "name": "@quansa/api",
+  "version": "0.0.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "lint": "eslint src scripts",
+    "test": "jest --config jest.config.cjs",
+    "starkbank:check": "tsx scripts/check-starkbank-balance.ts"
+  },
+  "dependencies": {
+    "@quansa/shared-types": "*",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "fastify": "^5.8.5",
+    "starkbank": "^2.40.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.9.2",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}

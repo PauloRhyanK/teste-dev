@@ -125,26 +125,41 @@ Se a autenticação estiver correta, o comando exibe o saldo da conta Sandbox. O
 
 | Comando | Descrição |
 |---------|-----------|
-| `npm run dev` | Sobe o servidor Fastify com hot reload (porta padrão: 3000) |
-| `npm run build` | Compila TypeScript para `dist/` |
-| `npm start` | Executa o build de produção |
-| `npm run lint` | Verifica padrões de código (ESLint) |
+| `npm run dev` | Sobe a API Fastify com hot reload (porta padrão: 3000) |
+| `npm run dev:web` | Sobe o frontend React/Vite (porta padrão: 5173) |
+| `npm run build` | Compila `shared-types` → `api` → `web` |
+| `npm start` | Executa a API em produção |
+| `npm run lint` | Verifica padrões de código em todos os workspaces |
 | `npm run lint:fix` | Corrige problemas de lint automaticamente |
 | `npm run format` | Formata o código com Prettier |
-| `npm test` | Executa testes unitários (Jest) |
+| `npm test` | Executa testes unitários da API (Jest) |
 | `npm run starkbank:check` | Testa autenticação ECDSA e exibe saldo Sandbox |
 
-### Estrutura do projeto
+### Monorepo
 
-O projeto segue uma **Arquitetura Limpa Simplificada** para permitir trabalho paralelo sem conflitos estruturais:
+O repositório usa **npm workspaces** para compartilhar tipagem TypeScript entre backend e frontend:
 
 ```
-src/
-  domain/        # Entidades e regras de negócio puras (sem dependências externas)
+apps/
+  api/                 # Backend Fastify/Node.js (Sprints 1–4)
+  web/                 # Frontend React/Vite (Sprint 5)
+packages/
+  shared-types/        # DTOs compartilhados (contrato API ↔ UI)
+```
+
+Alterações em `packages/shared-types` quebram a compilação da API e do frontend se os contratos ficarem inconsistentes — evitando divergência silenciosa entre camadas.
+
+### Estrutura da API (`apps/api`)
+
+A API segue **Arquitetura Limpa Simplificada**:
+
+```
+apps/api/src/
+  domain/        # Entidades e regras de negócio puras
   use-cases/     # Orquestração das regras de negócio
-  adapters/      # Controllers HTTP (Fastify), gateways externos (Stark Bank, Excel)
-  infra/         # Servidor, configuração e bootstrap da aplicação
-  main.ts        # Ponto de entrada da aplicação
+  adapters/      # HTTP, gateways externos (Stark Bank, Excel)
+  infra/         # Servidor, configuração e bootstrap
+  main.ts        # Ponto de entrada
 ```
 
 | Camada | Responsabilidade |
@@ -156,9 +171,11 @@ src/
 
 ### Health check
 
-Com o servidor rodando (`npm run dev`), verifique:
+Com a API rodando (`npm run dev`), verifique:
 
 ```bash
 curl http://localhost:3000/health
 # {"status":"ok"}
 ```
+
+Com o frontend (`npm run dev:web`), a página inicial consulta `/health` via proxy do Vite e exibe o status tipado com `@quansa/shared-types`.

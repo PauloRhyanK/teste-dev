@@ -1,5 +1,8 @@
 keys/
 node_modules/
-dist/
 .env
 coverage/
+
+apps/api/dist/
+apps/web/dist/
+packages/shared-types/dist/
