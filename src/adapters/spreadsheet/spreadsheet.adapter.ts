@@ -6,6 +6,12 @@ import {
   sanitizeBranchCode,
 } from './banking-field.sanitizer.js';
 import type { PaymentBatchRowDto } from './payment-batch-row.dto.js';
+import type { PaymentProcessingOutputRow } from './payment-processing-output-row.js';
+import {
+  PROCESSING_SHEET_HEADERS,
+  PROCESSING_SHEET_NAME,
+} from './processing-sheet.constants.js';
+import { setCellAsCurrency, setCellAsText } from './spreadsheet-cell-formatter.js';
 
 const PAYMENT_BATCH_SHEET_NAME = 'Lote de Pagamentos';
 
@@ -187,16 +193,76 @@ function parsePaymentBatchRows(worksheet: ExcelJS.Worksheet): PaymentBatchRowDto
   return rows;
 }
 
-export class SpreadsheetAdapter {
-  async parsePaymentBatch(input: Buffer | string): Promise<PaymentBatchRowDto[]> {
-    const workbook = new ExcelJS.Workbook();
+async function loadWorkbook(input: Buffer | string): Promise<ExcelJS.Workbook> {
+  const workbook = new ExcelJS.Workbook();
 
-    if (typeof input === 'string') {
-      await workbook.xlsx.readFile(input);
-    } else {
-      await workbook.xlsx.load(input as unknown as Parameters<ExcelJS.Xlsx['load']>[0]);
+  if (typeof input === 'string') {
+    await workbook.xlsx.readFile(input);
+  } else {
+    await workbook.xlsx.load(input as unknown as Parameters<ExcelJS.Xlsx['load']>[0]);
+  }
+
+  return workbook;
+}
+
+async function workbookToBuffer(workbook: ExcelJS.Workbook): Promise<Buffer> {
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+function writeProcessingRows(
+  worksheet: ExcelJS.Worksheet,
+  rows: PaymentProcessingOutputRow[],
+): void {
+  worksheet.addRow([...PROCESSING_SHEET_HEADERS]);
+
+  for (const row of rows) {
+    const excelRow = worksheet.addRow([
+      row.paymentDate,
+      row.beneficiary,
+      row.taxId,
+      row.bank,
+      row.branch,
+      row.account,
+      row.accountType,
+      row.amount,
+      row.starkBankId ?? '',
+      row.status,
+      row.motivo ?? '',
+    ]);
+
+    setCellAsText(excelRow.getCell(3), row.taxId);
+    setCellAsText(excelRow.getCell(4), row.bank);
+    setCellAsText(excelRow.getCell(5), row.branch);
+    setCellAsText(excelRow.getCell(6), row.account);
+
+    if (row.starkBankId) {
+      setCellAsText(excelRow.getCell(9), row.starkBankId);
     }
 
+    setCellAsCurrency(excelRow.getCell(8), row.amount);
+  }
+}
+
+function addProcessingSheet(
+  workbook: ExcelJS.Workbook,
+  rows: PaymentProcessingOutputRow[],
+): ExcelJS.Worksheet {
+  const existingSheet = workbook.getWorksheet(PROCESSING_SHEET_NAME);
+
+  if (existingSheet) {
+    workbook.removeWorksheet(existingSheet.id);
+  }
+
+  const worksheet = workbook.addWorksheet(PROCESSING_SHEET_NAME);
+  writeProcessingRows(worksheet, rows);
+
+  return worksheet;
+}
+
+export class SpreadsheetAdapter {
+  async parsePaymentBatch(input: Buffer | string): Promise<PaymentBatchRowDto[]> {
+    const workbook = await loadWorkbook(input);
     const worksheet = workbook.getWorksheet(PAYMENT_BATCH_SHEET_NAME);
 
     if (!worksheet) {
@@ -204,5 +270,20 @@ export class SpreadsheetAdapter {
     }
 
     return parsePaymentBatchRows(worksheet);
+  }
+
+  async writeProcessamentoPagamentos(
+    source: Buffer | string,
+    rows: PaymentProcessingOutputRow[],
+  ): Promise<Buffer> {
+    const workbook = await loadWorkbook(source);
+    addProcessingSheet(workbook, rows);
+    return workbookToBuffer(workbook);
+  }
+
+  async buildProcessamentoWorkbook(rows: PaymentProcessingOutputRow[]): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    addProcessingSheet(workbook, rows);
+    return workbookToBuffer(workbook);
   }
 }
