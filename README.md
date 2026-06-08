@@ -20,7 +20,10 @@ O teste tem três momentos, em cerca de 4 horas:
 
 ## O desafio
 
-Você recebeu uma planilha ([`planilha_teste_pagamentos.xlsx`](https://docs.google.com/spreadsheets/d/169dGl3zxkHdk3PyYYEF9KA2zPQreUuQO/edit?usp=sharing&ouid=101254844168636049749&rtpof=true&sd=true)) com uma lista de pagamentos a serem processados. Cada linha tem uma **data de pedido**, um **beneficiário** com seus **dados bancários** (CPF/CNPJ, banco, agência, conta) e um **valor**.
+Você recebeu uma planilha ([`planilha_teste_pagamentos.xlsx`](https://docs.google.com/spreadsheets/d/169dGl3zxkHdk3PyYYEF9KA2zPQreUuQO/edit?usp=sharing&ouid=101254844168636049749&rtpof=true&sd=true)) com duas abas:
+
+- **`Lote de Pagamentos`** — a entrada: a lista de pagamentos a serem processados. Cada linha tem um **ID**, uma **data de pedido**, um **beneficiário** com seus **dados bancários** (CPF/CNPJ, banco, agência, conta, tipo) e um **valor**.
+- **`Processamento de Pagamentos`** — a saída: onde você registra o resultado do processamento (veja **Saída esperada** abaixo).
 
 Seu objetivo é construir uma solução que leia essa planilha, **aplique as regras de negócio abaixo** e execute os pagamentos válidos no **Stark Bank Sandbox**. A linguagem e as bibliotecas são sua escolha.
 
@@ -44,8 +47,11 @@ Os pagamentos são feitos **via Pix, usando os dados bancários** de cada benefi
 
 ### Saída esperada
 
-Ao final, preencha de volta na planilha, para cada linha, as colunas:
+Ao final, preencha a aba **`Processamento de Pagamentos`** — **uma linha por pagamento processado**. Como vale a regra de *um pagamento por beneficiário por dia*, quando o mesmo beneficiário aparece em mais de uma linha no mesmo dia na aba `Lote de Pagamentos`, ele vira **uma única linha** aqui, já com os **valores somados**.
 
+Para cada pagamento, preencha as colunas:
+
+- **Data do Pagamento**, **Beneficiário**, **CPF/CNPJ**, **Banco**, **Agência**, **Conta**, **Tipo** e **Valor (R$)** — os dados do pagamento (com o valor já somado quando houver mais de uma linha do mesmo beneficiário no dia).
 - **Status** — `PAGO` ou `NÃO PAGO`.
 - **Motivo** — quando não pago, o motivo: erro de validação (qual regra) ou erro no momento do pagamento (o que o Stark Bank retornou).
 
