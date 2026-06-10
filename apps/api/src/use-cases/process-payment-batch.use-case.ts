@@ -153,7 +153,7 @@ export class ProcessPaymentBatchUseCase {
 
     emitStep(3);
 
-    const creationResults = await this.createTransfersUseCase.execute(withLimits);
+    const creationResults = await this.createTransfersUseCase.execute(withLimits, batchId);
 
     const eligibleCount = creationResults.filter(
       (result) => result.paymentStatus === 'PROCESSANDO',
@@ -198,6 +198,11 @@ export class ProcessPaymentBatchUseCase {
       }
 
       if (verification.paymentStatus === 'PAGO') {
+        emitLog(
+          'SUCCESS',
+          `Pago — ${line.beneficiary} • ${formatBrl(line.amount)}`,
+          { sourceLineId: line.sourceLineIds[0], transferId: verification.transferId },
+        );
         return;
       }
 

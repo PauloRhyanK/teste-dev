@@ -19,11 +19,6 @@ interface PollTransferStatusOptions {
   now?: () => number;
 }
 
-interface PendingTransferState {
-  transfer: TransferCreationResult;
-  startedAt: number;
-}
-
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -66,104 +61,63 @@ export class PollTransferStatusUseCase {
   }
 
   async execute(transfers: TransferCreationResult[]): Promise<TransferVerificationResult[]> {
-    const results = new Map<number, TransferVerificationResult>();
-    const pending = new Map<number, PendingTransferState>();
+    const resolved = await Promise.all(
+      transfers.map(async (transfer, index) => ({
+        index,
+        result: shouldPollTransfer(transfer)
+          ? await this.pollSingleTransfer(transfer)
+          : toVerificationResult(transfer),
+      })),
+    );
 
-    transfers.forEach((transfer, index) => {
-      if (shouldPollTransfer(transfer)) {
-        pending.set(index, {
-          transfer,
-          startedAt: this.now(),
+    const results = new Map(resolved.map(({ index, result }) => [index, result]));
+    return transfers.map((_, index) => results.get(index)!);
+  }
+
+  private async pollSingleTransfer(
+    transfer: TransferCreationResult,
+  ): Promise<TransferVerificationResult> {
+    const transferId = transfer.transferId!;
+    const startedAt = this.now();
+    let hadCommunicationError = false;
+
+    while (true) {
+      const elapsed = this.now() - startedAt;
+
+      if (elapsed >= this.timeoutMs) {
+        return toVerificationResult(transfer, {
+          paymentStatus: 'PENDENTE - VERIFICAÇÃO MANUAL',
+          motivo: hadCommunicationError ? mapSystemCommunicationError() : POLL_TIMEOUT_MOTIVO,
         });
-        return;
       }
-
-      results.set(index, toVerificationResult(transfer));
-    });
-
-    while (pending.size > 0) {
-      const pendingEntries = [...pending.entries()];
-      const pendingIds = pendingEntries
-        .map(([, state]) => state.transfer.transferId)
-        .filter((transferId): transferId is string => Boolean(transferId));
-
-      let snapshots;
 
       try {
-        snapshots = await this.gateway.getTransfersByIds(pendingIds);
-      } catch {
-        for (const [index, state] of pendingEntries) {
-          pending.delete(index);
-          results.set(index, toVerificationResult(state.transfer, {
-            paymentStatus: 'PENDENTE - VERIFICAÇÃO MANUAL',
-            motivo: mapSystemCommunicationError(),
-          }));
-        }
-
-        continue;
-      }
-
-      const snapshotById = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
-
-      for (const [index, state] of pendingEntries) {
-        const transferId = state.transfer.transferId;
-
-        if (!transferId) {
-          continue;
-        }
-
-        const snapshot = snapshotById.get(transferId);
-        const currentTime = this.now();
-
-        if (!snapshot) {
-          if (currentTime - state.startedAt >= this.timeoutMs) {
-            pending.delete(index);
-            results.set(index, toVerificationResult(state.transfer, {
-              paymentStatus: 'PENDENTE - VERIFICAÇÃO MANUAL',
-              motivo: POLL_TIMEOUT_MOTIVO,
-            }));
-          }
-          continue;
-        }
+        const snapshot = await this.gateway.getTransfer(transferId);
 
         if (isFinalTransferStatus(snapshot.status)) {
-          pending.delete(index);
           const paymentStatus = mapTransferStatusToPaymentStatus(snapshot.status);
 
           if (paymentStatus === 'PAGO') {
-            results.set(index, toVerificationResult(state.transfer, {
+            return toVerificationResult(transfer, {
               paymentStatus: 'PAGO',
               starkStatus: snapshot.status,
               motivo: undefined,
-            }));
-            continue;
+            });
           }
 
           const motivo = await this.gateway.getTransferFailureReason(transferId);
 
-          results.set(index, toVerificationResult(state.transfer, {
+          return toVerificationResult(transfer, {
             paymentStatus: 'NÃO PAGO',
             starkStatus: snapshot.status,
             motivo,
-          }));
-          continue;
+          });
         }
-
-        if (currentTime - state.startedAt >= this.timeoutMs) {
-          pending.delete(index);
-          results.set(index, toVerificationResult(state.transfer, {
-            paymentStatus: 'PENDENTE - VERIFICAÇÃO MANUAL',
-            motivo: POLL_TIMEOUT_MOTIVO,
-            starkStatus: snapshot.status,
-          }));
-        }
+      } catch {
+        hadCommunicationError = true;
       }
 
-      if (pending.size > 0) {
-        await this.sleep(this.pollIntervalMs);
-      }
+      await this.sleep(this.pollIntervalMs);
     }
-
-    return transfers.map((_, index) => results.get(index)!);
   }
 }

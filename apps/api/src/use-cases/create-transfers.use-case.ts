@@ -19,7 +19,10 @@ function isEligibleForTransfer(line: ConsolidatedPaymentLine): boolean {
 export class CreateTransfersUseCase {
   constructor(private readonly gateway: StarkBankGateway) {}
 
-  async execute(batch: ConsolidatedPaymentBatch): Promise<TransferCreationResult[]> {
+  async execute(
+    batch: ConsolidatedPaymentBatch,
+    batchId: string,
+  ): Promise<TransferCreationResult[]> {
     const eligible: { index: number; line: ConsolidatedPaymentLine }[] = [];
 
     batch.lines.forEach((line, index) => {
@@ -30,7 +33,10 @@ export class CreateTransfersUseCase {
 
     const created =
       eligible.length > 0
-        ? await this.gateway.createTransfers(eligible.map((entry) => entry.line))
+        ? await this.gateway.createTransfers(
+            eligible.map((entry) => entry.line),
+            batchId,
+          )
         : [];
 
     const results: TransferCreationResult[] = batch.lines.map((line) => toSkippedResult(line));

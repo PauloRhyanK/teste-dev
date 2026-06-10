@@ -17,7 +17,7 @@ const PAYMENT_BATCH_SHEET_NAME = 'Lote de Pagamentos';
 
 const COLUMN_HEADERS = {
   id: 'id',
-  orderDate: 'data de pedido',
+  orderDate: 'data do pedido',
   beneficiary: 'beneficiário',
   taxId: 'cpf/cnpj',
   bank: 'banco',
@@ -56,9 +56,19 @@ interface RawRowValues {
 
 function normalizeHeader(value: unknown): string {
   return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
 }
+
+const NORMALIZED_COLUMN_HEADERS = Object.fromEntries(
+  (Object.entries(COLUMN_HEADERS) as [ColumnKey, string][]).map(([key, header]) => [
+    key,
+    normalizeHeader(header),
+  ]),
+) as Record<ColumnKey, string>;
 
 function getCellText(cell: ExcelJS.Cell): string | undefined {
   const text = cell.text?.trim();
@@ -117,30 +127,79 @@ function isRowEmpty(values: RawRowValues): boolean {
   });
 }
 
-function buildColumnMapping(headerRow: ExcelJS.Row): ColumnMapping {
+function mapHeaderRow(headerRow: ExcelJS.Row): Partial<ColumnMapping> {
   const mapping: Partial<ColumnMapping> = {};
 
   headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
     const normalized = normalizeHeader(cell.value);
 
-    for (const [key, header] of Object.entries(COLUMN_HEADERS) as [ColumnKey, string][]) {
+    for (const [key, header] of Object.entries(NORMALIZED_COLUMN_HEADERS) as [
+      ColumnKey,
+      string,
+    ][]) {
       if (normalized === header) {
         mapping[key] = colNumber;
       }
     }
   });
 
+  return mapping;
+}
+
+function getRowHeaderTexts(row: ExcelJS.Row): string[] {
+  const texts: string[] = [];
+  row.eachCell({ includeEmpty: false }, (cell) => {
+    const text = normalizeHeader(cell.value);
+    if (text) {
+      texts.push(text);
+    }
+  });
+  return texts;
+}
+
+function findHeaderRow(worksheet: ExcelJS.Worksheet): {
+  headerRowNumber: number;
+  mapping: ColumnMapping;
+} {
+  const maxScan = Math.min(worksheet.rowCount, 15);
+  let best: { headerRowNumber: number; mapping: Partial<ColumnMapping>; matched: number } = {
+    headerRowNumber: 1,
+    mapping: {},
+    matched: -1,
+  };
+
+  for (let rowNumber = 1; rowNumber <= maxScan; rowNumber += 1) {
+    const mapping = mapHeaderRow(worksheet.getRow(rowNumber));
+    const matched = Object.keys(mapping).length;
+
+    if (matched > best.matched) {
+      best = { headerRowNumber: rowNumber, mapping, matched };
+    }
+
+    if (matched === Object.keys(COLUMN_HEADERS).length) {
+      break;
+    }
+  }
+
   const missingColumns = (Object.keys(COLUMN_HEADERS) as ColumnKey[]).filter(
-    (key) => mapping[key] === undefined,
+    (key) => best.mapping[key] === undefined,
   );
 
   if (missingColumns.length > 0) {
+    const foundHeaders = getRowHeaderTexts(worksheet.getRow(best.headerRowNumber));
+    // eslint-disable-next-line no-console
+    console.error(
+      `[spreadsheet] Header detection failed on sheet "${worksheet.name}". ` +
+        `Best row: ${best.headerRowNumber}. Found headers: [${foundHeaders.join(' | ')}]. ` +
+        `Expected: [${Object.values(COLUMN_HEADERS).join(' | ')}].`,
+    );
+
     throw new Error(
       `Missing required columns in "${PAYMENT_BATCH_SHEET_NAME}": ${missingColumns.join(', ')}`,
     );
   }
 
-  return mapping as ColumnMapping;
+  return { headerRowNumber: best.headerRowNumber, mapping: best.mapping as ColumnMapping };
 }
 
 function readRawRow(row: ExcelJS.Row, columns: ColumnMapping): RawRowValues {
@@ -175,11 +234,10 @@ function toPaymentBatchRowDto(values: RawRowValues): PaymentBatchRowDto {
 }
 
 function parsePaymentBatchRows(worksheet: ExcelJS.Worksheet): PaymentBatchRowDto[] {
-  const headerRow = worksheet.getRow(1);
-  const columns = buildColumnMapping(headerRow);
+  const { headerRowNumber, mapping: columns } = findHeaderRow(worksheet);
   const rows: PaymentBatchRowDto[] = [];
 
-  for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+  for (let rowNumber = headerRowNumber + 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
     const row = worksheet.getRow(rowNumber);
     const rawValues = readRawRow(row, columns);
 
@@ -248,10 +306,16 @@ function addProcessingSheet(
   workbook: ExcelJS.Workbook,
   rows: PaymentProcessingOutputRow[],
 ): ExcelJS.Worksheet {
-  const existingSheet = workbook.getWorksheet(PROCESSING_SHEET_NAME);
+  const secondSheet = workbook.worksheets[1];
 
-  if (existingSheet) {
-    workbook.removeWorksheet(existingSheet.id);
+  if (secondSheet) {
+    workbook.removeWorksheet(secondSheet.id);
+  }
+
+  const existingByName = workbook.getWorksheet(PROCESSING_SHEET_NAME);
+
+  if (existingByName) {
+    workbook.removeWorksheet(existingByName.id);
   }
 
   const worksheet = workbook.addWorksheet(PROCESSING_SHEET_NAME);
@@ -263,7 +327,7 @@ function addProcessingSheet(
 export class SpreadsheetAdapter {
   async parsePaymentBatch(input: Buffer | string): Promise<PaymentBatchRowDto[]> {
     const workbook = await loadWorkbook(input);
-    const worksheet = workbook.getWorksheet(PAYMENT_BATCH_SHEET_NAME);
+    const worksheet = workbook.worksheets[0];
 
     if (!worksheet) {
       throw new Error(`Worksheet "${PAYMENT_BATCH_SHEET_NAME}" not found`);

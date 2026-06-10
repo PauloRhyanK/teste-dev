@@ -35,9 +35,9 @@ describe('PollTransferStatusUseCase', () => {
   const now = jest.fn(() => currentTime);
 
   const gateway = {
-    getTransfersByIds: jest.fn(),
+    getTransfer: jest.fn(),
     getTransferFailureReason: jest.fn(),
-  } as unknown as jest.Mocked<Pick<StarkBankGateway, 'getTransfersByIds' | 'getTransferFailureReason'>>;
+  } as unknown as jest.Mocked<Pick<StarkBankGateway, 'getTransfer' | 'getTransferFailureReason'>>;
 
   const useCase = new PollTransferStatusUseCase(gateway as StarkBankGateway, {
     sleep,
@@ -50,28 +50,31 @@ describe('PollTransferStatusUseCase', () => {
     currentTime = 0;
     sleepCalls = [];
     jest.clearAllMocks();
-    gateway.getTransfersByIds.mockReset();
+    gateway.getTransfer.mockReset();
     gateway.getTransferFailureReason.mockReset();
   });
 
   it('marks transfer as PAGO when status becomes success on second poll', async () => {
-    gateway.getTransfersByIds
-      .mockResolvedValueOnce([{ id: 'transfer-1', status: 'processing', externalId: 'external-1' }])
-      .mockResolvedValueOnce([{ id: 'transfer-1', status: 'success', externalId: 'external-1' }]);
+    gateway.getTransfer
+      .mockResolvedValueOnce({ id: 'transfer-1', status: 'processing', externalId: 'external-1' })
+      .mockResolvedValueOnce({ id: 'transfer-1', status: 'success', externalId: 'external-1' });
 
     const input = [createTransfer()];
     const result = await useCase.execute(input);
 
     expect(result[0]?.paymentStatus).toBe('PAGO');
     expect(result[0]?.starkStatus).toBe('success');
-    expect(gateway.getTransfersByIds).toHaveBeenCalledTimes(2);
+    expect(gateway.getTransfer).toHaveBeenCalledTimes(2);
+    expect(gateway.getTransfer).toHaveBeenCalledWith('transfer-1');
     expect(sleep).toHaveBeenCalledWith(POLL_INTERVAL_MS);
   });
 
   it('marks failed transfers as NÃO PAGO with log reason', async () => {
-    gateway.getTransfersByIds.mockResolvedValue([
-      { id: 'transfer-1', status: 'failed', externalId: 'external-1' },
-    ]);
+    gateway.getTransfer.mockResolvedValue({
+      id: 'transfer-1',
+      status: 'failed',
+      externalId: 'external-1',
+    });
     gateway.getTransferFailureReason.mockResolvedValue(
       'Erro StarkBank: Conta de destino inválida',
     );
@@ -84,9 +87,11 @@ describe('PollTransferStatusUseCase', () => {
   });
 
   it('marks canceled transfers as NÃO PAGO', async () => {
-    gateway.getTransfersByIds.mockResolvedValue([
-      { id: 'transfer-1', status: 'canceled', externalId: 'external-1' },
-    ]);
+    gateway.getTransfer.mockResolvedValue({
+      id: 'transfer-1',
+      status: 'canceled',
+      externalId: 'external-1',
+    });
     gateway.getTransferFailureReason.mockResolvedValue(
       'Erro StarkBank: Operação cancelada',
     );
@@ -98,9 +103,11 @@ describe('PollTransferStatusUseCase', () => {
   });
 
   it('marks processing transfers as PENDENTE after timeout', async () => {
-    gateway.getTransfersByIds.mockResolvedValue([
-      { id: 'transfer-1', status: 'processing', externalId: 'external-1' },
-    ]);
+    gateway.getTransfer.mockResolvedValue({
+      id: 'transfer-1',
+      status: 'processing',
+      externalId: 'external-1',
+    });
 
     const result = await useCase.execute([createTransfer()]);
 
@@ -122,14 +129,15 @@ describe('PollTransferStatusUseCase', () => {
 
     expect(result[0]?.paymentStatus).toBe('NÃO PAGO');
     expect(result[0]?.motivo).toBe('CPF/CNPJ inválido');
-    expect(gateway.getTransfersByIds).not.toHaveBeenCalled();
+    expect(gateway.getTransfer).not.toHaveBeenCalled();
   });
 
-  it('queries multiple transfer ids in batch', async () => {
-    gateway.getTransfersByIds.mockResolvedValue([
-      { id: 'transfer-1', status: 'success', externalId: 'external-1' },
-      { id: 'transfer-2', status: 'success', externalId: 'external-2' },
-    ]);
+  it('polls multiple transfers concurrently via get by id', async () => {
+    gateway.getTransfer.mockImplementation(async (transferId: string) => ({
+      id: transferId,
+      status: 'success',
+      externalId: `external-${transferId}`,
+    }));
 
     const input = [
       createTransfer({ sourceLineIds: ['1'], transferId: 'transfer-1' }),
@@ -138,18 +146,39 @@ describe('PollTransferStatusUseCase', () => {
 
     const result = await useCase.execute(input);
 
-    expect(gateway.getTransfersByIds).toHaveBeenCalledWith(['transfer-1', 'transfer-2']);
+    expect(gateway.getTransfer).toHaveBeenCalledWith('transfer-1');
+    expect(gateway.getTransfer).toHaveBeenCalledWith('transfer-2');
     expect(result[0]?.paymentStatus).toBe('PAGO');
     expect(result[1]?.paymentStatus).toBe('PAGO');
   });
 
-  it('marks pending transfers as PENDENTE when polling communication fails', async () => {
-    gateway.getTransfersByIds.mockRejectedValue(new Error('Network failure'));
+  it('retries after transient communication errors until success', async () => {
+    gateway.getTransfer
+      .mockRejectedValueOnce(new Error('Network failure'))
+      .mockResolvedValueOnce({ id: 'transfer-1', status: 'success', externalId: 'external-1' });
 
     const result = await useCase.execute([createTransfer()]);
 
+    expect(result[0]?.paymentStatus).toBe('PAGO');
+    expect(gateway.getTransfer).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks transfer as PENDENTE only after timeout when communication keeps failing', async () => {
+    const shortTimeoutUseCase = new PollTransferStatusUseCase(gateway as StarkBankGateway, {
+      sleep,
+      now,
+      pollIntervalMs: 1_000,
+      timeoutMs: 2_500,
+    });
+
+    gateway.getTransfer.mockRejectedValue(new Error('Network failure'));
+
+    const result = await shortTimeoutUseCase.execute([createTransfer()]);
+
     expect(result[0]?.paymentStatus).toBe('PENDENTE - VERIFICAÇÃO MANUAL');
     expect(result[0]?.motivo).toBe(mapSystemCommunicationError());
+    expect(gateway.getTransfer.mock.calls.length).toBeGreaterThan(1);
   });
 
   it('does not mutate the original transfer array or objects', async () => {
@@ -157,9 +186,11 @@ describe('PollTransferStatusUseCase', () => {
     const input = [transfer];
     const inputRef = input;
 
-    gateway.getTransfersByIds.mockResolvedValue([
-      { id: 'transfer-1', status: 'success', externalId: 'external-1' },
-    ]);
+    gateway.getTransfer.mockResolvedValue({
+      id: 'transfer-1',
+      status: 'success',
+      externalId: 'external-1',
+    });
 
     await useCase.execute(input);
 

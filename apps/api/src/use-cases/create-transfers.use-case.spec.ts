@@ -60,9 +60,9 @@ describe('CreateTransfersUseCase', () => {
       },
     ]);
 
-    const results = await useCase.execute(batch);
+    const results = await useCase.execute(batch, 'batch-abc');
 
-    expect(gateway.createTransfers).toHaveBeenCalledWith([batch.lines[1]]);
+    expect(gateway.createTransfers).toHaveBeenCalledWith([batch.lines[1]], 'batch-abc');
     expect(results[0]?.paymentStatus).toBe('NÃO PAGO');
     expect(results[1]?.paymentStatus).toBe('PROCESSANDO');
   });
@@ -114,7 +114,7 @@ describe('CreateTransfersUseCase', () => {
       },
     ]);
 
-    const results = await useCase.execute(batch);
+    const results = await useCase.execute(batch, 'batch-abc');
 
     expect(results[0]?.paymentStatus).toBe('NÃO PAGO');
     expect(results[1]?.paymentStatus).toBe('PROCESSANDO');

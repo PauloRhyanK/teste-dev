@@ -41,6 +41,22 @@ const testConfig: StarkBankConfig = {
   privateKey: '-----BEGIN EC PRIVATE KEY-----\ntest-key\n-----END EC PRIVATE KEY-----',
 };
 
+const testBatchId = 'batch-abc';
+
+function mockTransferLogQuery(
+  entries: Array<{ errors: string[]; created: string }>,
+): jest.Mock {
+  return jest.fn(async () => {
+    async function* generator() {
+      for (const entry of entries) {
+        yield entry;
+      }
+    }
+
+    return generator();
+  });
+}
+
 describe('StarkBankGateway', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -105,56 +121,84 @@ describe('StarkBankGateway', () => {
   });
 
   it('gets transfers in batch by ids', async () => {
-    mockedTransferQuery.mockResolvedValue([
-      { id: 'transfer-1', status: 'success', externalId: 'external-1' },
-      { id: 'transfer-2', status: 'processing', externalId: 'external-2' },
-    ]);
+    mockedTransferGet
+      .mockResolvedValueOnce({
+        id: 'transfer-1',
+        status: 'success',
+        externalId: 'external-1',
+      })
+      .mockResolvedValueOnce({
+        id: 'transfer-2',
+        status: 'processing',
+        externalId: 'external-2',
+      });
 
     const gateway = new StarkBankGateway(testConfig);
     const transfers = await gateway.getTransfersByIds(['transfer-1', 'transfer-2']);
 
-    expect(mockedTransferQuery).toHaveBeenCalledWith({ ids: ['transfer-1', 'transfer-2'] });
+    expect(mockedTransferGet).toHaveBeenNthCalledWith(1, 'transfer-1');
+    expect(mockedTransferGet).toHaveBeenNthCalledWith(2, 'transfer-2');
     expect(transfers).toHaveLength(2);
   });
 
+  it('skips missing transfers when getting by ids', async () => {
+    mockedTransferGet
+      .mockResolvedValueOnce({
+        id: 'transfer-1',
+        status: 'success',
+        externalId: 'external-1',
+      })
+      .mockRejectedValueOnce(new Error('not found'));
+
+    const gateway = new StarkBankGateway(testConfig);
+    const transfers = await gateway.getTransfersByIds(['transfer-1', 'transfer-missing']);
+
+    expect(transfers).toHaveLength(1);
+    expect(transfers[0]?.id).toBe('transfer-1');
+  });
+
   it('returns failure reason from transfer logs', async () => {
-    mockedTransferLogQuery.mockResolvedValue([
-      {
-        errors: ['Conta inválida'],
-        created: '2024-01-15 10:00:00.000',
-      },
-      {
-        errors: ['Saldo insuficiente'],
-        created: '2024-01-15 09:00:00.000',
-      },
-    ]);
+    mockedTransferLogQuery.mockImplementation(
+      mockTransferLogQuery([
+        {
+          errors: ['Conta inválida'],
+          created: '2024-01-15 10:00:00.000',
+        },
+        {
+          errors: ['Saldo insuficiente'],
+          created: '2024-01-15 09:00:00.000',
+        },
+      ]),
+    );
 
     const gateway = new StarkBankGateway(testConfig);
     const reason = await gateway.getTransferFailureReason('transfer-1');
 
     expect(mockedTransferLogQuery).toHaveBeenCalledWith({
       transferIds: ['transfer-1'],
-      types: ['failed'],
     });
     expect(reason).toBe('Erro StarkBank: Conta de destino inválida');
   });
 
-  it('returns mapped system error when transfer log query fails', async () => {
-    mockedTransferLogQuery.mockRejectedValue(new Error('Network failure'));
+  it('returns fallback motivo when transfer log query fails', async () => {
+    mockedTransferLogQuery.mockImplementation(async () => {
+      throw new Error('Network failure');
+    });
 
     const gateway = new StarkBankGateway(testConfig);
     const reason = await gateway.getTransferFailureReason('transfer-1');
 
-    expect(reason).toBe('Erro de Sistema: Falha de comunicação. Verificar manualmente.');
+    expect(reason).toBe('Erro StarkBank: Transferência rejeitada pelo banco destino');
   });
 
-  it('creates transfers and returns processing results', async () => {
+  it('creates transfers and returns PAGO when status is already success', async () => {
     mockedTransferCreate.mockResolvedValue([
-      { id: 'transfer-1', status: 'processing', externalId: 'batch-abc-1' },
+      { id: 'transfer-1', status: 'success', externalId: 'batch-abc-1' },
     ]);
 
     const gateway = new StarkBankGateway(testConfig);
-    const results = await gateway.createTransfers([
+    const results = await gateway.createTransfers(
+      [
       {
         sourceLineIds: ['1'],
         orderDate: '2024-01-15',
@@ -168,7 +212,46 @@ describe('StarkBankGateway', () => {
         domainErrors: [],
         isValid: true,
       },
+    ],
+      testBatchId,
+    );
+
+    expect(results).toEqual([
+      {
+        sourceLineIds: ['1'],
+        transferId: 'transfer-1',
+        transferStatus: 'success',
+        externalId: 'batch-abc-1',
+        amount: 1250,
+        paymentStatus: 'PAGO',
+      },
     ]);
+  });
+
+  it('creates transfers and returns processing results', async () => {
+    mockedTransferCreate.mockResolvedValue([
+      { id: 'transfer-1', status: 'processing', externalId: 'batch-abc-1' },
+    ]);
+
+    const gateway = new StarkBankGateway(testConfig);
+    const results = await gateway.createTransfers(
+      [
+      {
+        sourceLineIds: ['1'],
+        orderDate: '2024-01-15',
+        beneficiary: 'Maria Souza',
+        taxId: '12345678901',
+        bank: '20018183',
+        branch: '0001',
+        account: '12345-6',
+        accountType: 'Corrente',
+        amount: 1250,
+        domainErrors: [],
+        isValid: true,
+      },
+    ],
+      testBatchId,
+    );
 
     expect(mockedTransferCreate).toHaveBeenCalled();
     expect(results).toEqual([
@@ -191,7 +274,8 @@ describe('StarkBankGateway', () => {
       .mockResolvedValueOnce([{ id: 'transfer-2', status: 'processing', externalId: 'pix-2' }]);
 
     const gateway = new StarkBankGateway(testConfig);
-    const results = await gateway.createTransfers([
+    const results = await gateway.createTransfers(
+      [
       {
         sourceLineIds: ['1'],
         orderDate: '2024-01-15',
@@ -218,7 +302,9 @@ describe('StarkBankGateway', () => {
         domainErrors: [],
         isValid: true,
       },
-    ]);
+    ],
+      testBatchId,
+    );
 
     expect(results[0]?.paymentStatus).toBe('NÃO PAGO');
     expect(results[1]?.paymentStatus).toBe('PROCESSANDO');
@@ -230,7 +316,8 @@ describe('StarkBankGateway', () => {
     });
 
     const gateway = new StarkBankGateway(testConfig);
-    const results = await gateway.createTransfers([
+    const results = await gateway.createTransfers(
+      [
       {
         sourceLineIds: ['2'],
         orderDate: '2024-01-15',
@@ -244,19 +331,23 @@ describe('StarkBankGateway', () => {
         domainErrors: [],
         isValid: true,
       },
-    ]);
+    ],
+      testBatchId,
+    );
 
     expect(results[0]?.paymentStatus).toBe('NÃO PAGO');
     expect(results[0]?.motivo).toContain('Saldo insuficiente');
   });
 
   it('returns mapped fallback when transfer logs have no errors', async () => {
-    mockedTransferLogQuery.mockResolvedValue([
-      {
-        errors: [],
-        created: '2024-01-15 10:00:00.000',
-      },
-    ]);
+    mockedTransferLogQuery.mockImplementation(
+      mockTransferLogQuery([
+        {
+          errors: [],
+          created: '2024-01-15 10:00:00.000',
+        },
+      ]),
+    );
 
     const gateway = new StarkBankGateway(testConfig);
     const reason = await gateway.getTransferFailureReason('transfer-1');
