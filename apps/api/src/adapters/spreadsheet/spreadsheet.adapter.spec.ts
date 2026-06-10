@@ -4,11 +4,12 @@ import { join } from 'node:path';
 
 import ExcelJS from 'exceljs';
 
+import { PROCESSING_SHEET_HEADERS } from './processing-sheet.constants.js';
 import { SpreadsheetAdapter } from './spreadsheet.adapter.js';
 
 const HEADERS = [
   'ID',
-  'Data de pedido',
+  'Data do Pedido',
   'Beneficiário',
   'CPF/CNPJ',
   'Banco',
@@ -122,9 +123,68 @@ describe('SpreadsheetAdapter', () => {
     expect(result[0]?.beneficiary).toBe('Maria Silva');
   });
 
+  it('fills processing sheet in place while preserving existing layout', async () => {
+    const workbook = new ExcelJS.Workbook();
+    const inputSheet = workbook.addWorksheet('Lote de Pagamentos');
+    inputSheet.addRow(HEADERS);
+    inputSheet.addRow([
+      '1',
+      '2024-01-15',
+      'Maria Silva',
+      '123.456.789-00',
+      '00000001',
+      '0001',
+      '12345-6',
+      'corrente',
+      100,
+    ]);
+
+    const processingSheet = workbook.addWorksheet('Processamento de Pagamentos');
+    processingSheet.getCell('A1').value = 'QUANSA · Processamento';
+    processingSheet.getCell('A2').value = 'Descrição do template';
+    processingSheet.addRow([]);
+    processingSheet.addRow([...PROCESSING_SHEET_HEADERS]);
+    processingSheet.getRow(5).getCell(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFF00' },
+    };
+
+    const inputBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    const outputBuffer = await adapter.writeProcessamentoPagamentos(inputBuffer, [
+      {
+        paymentDate: '2024-01-15',
+        beneficiary: 'Maria Silva',
+        taxId: '123.456.789-00',
+        bank: '00000001',
+        branch: '0001',
+        account: '12345-6',
+        accountType: 'corrente',
+        amount: 100,
+        starkBankId: 'transfer-123',
+        status: 'PAGO',
+      },
+    ]);
+
+    const resultWorkbook = new ExcelJS.Workbook();
+    await resultWorkbook.xlsx.load(outputBuffer as unknown as Parameters<ExcelJS.Xlsx['load']>[0]);
+
+    const resultSheet = resultWorkbook.getWorksheet('Processamento de Pagamentos');
+    expect(resultSheet?.getCell('A1').value).toBe('QUANSA · Processamento');
+    expect(resultSheet?.getCell('A2').value).toBe('Descrição do template');
+    expect(resultSheet?.getRow(5).getCell(1).fill).toMatchObject({
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFF00' },
+    });
+    expect(resultSheet?.getRow(5).getCell(1).value).toBe('2024-01-15');
+    expect(resultSheet?.getRow(5).getCell(2).value).toBe('Maria Silva');
+    expect(resultSheet?.getRow(5).getCell(10).value).toBe('PAGO');
+    expect(resultWorkbook.worksheets).toHaveLength(2);
+  });
+
   it('throws when worksheet is missing', async () => {
     const workbook = new ExcelJS.Workbook();
-    workbook.addWorksheet('Outra aba');
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
     await expect(adapter.parsePaymentBatch(buffer)).rejects.toThrow(
